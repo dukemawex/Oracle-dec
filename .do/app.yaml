@@ -7,7 +7,7 @@ services:
       repo: YOUR_GITHUB_ORG/oracledeck
       branch: main
       deploy_on_push: true
-    source_dir: apps/api
+    source_dir: .
     dockerfile_path: apps/api/Dockerfile
     http_port: 8080
     instance_count: 1
@@ -41,7 +41,7 @@ jobs:
     github:
       repo: YOUR_GITHUB_ORG/oracledeck
       branch: main
-    source_dir: apps/api
+    source_dir: .
     dockerfile_path: apps/api/Dockerfile
     run_command: node dist/scripts/sync-resolutions.js
     envs:
