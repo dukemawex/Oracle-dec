@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: oracledeck-backend
+    env: node
+    rootDir: backend
+    buildCommand: npm install && npm run prisma:generate && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DATABASE_URL
+        sync: false
+      - key: METACULUS_TOKEN
+        sync: false
+      - key: METACULUS_API_BASE
+        value: https://www.metaculus.com/api2
+      - key: VERCEL_DEPLOY_HOOK_URL
+        sync: false
