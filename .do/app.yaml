@@ -1,0 +1,62 @@
+name: oracledeck
+region: nyc
+
+services:
+  - name: api
+    github:
+      repo: YOUR_GITHUB_ORG/oracledeck # Replace YOUR_GITHUB_ORG with your actual GitHub username or organization.
+      branch: main
+      deploy_on_push: true
+    source_dir: apps/api
+    environment_slug: node-js
+    build_command: npm install && npm run build && npx prisma generate
+    run_command: npm start
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-1gb
+    health_check:
+      http_path: /health
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${oracledeck-db.DATABASE_URL}
+      - key: METACULUS_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+      - key: FRONTEND_URL
+        scope: RUN_TIME
+        value: https://your-app.vercel.app
+      - key: VERCEL_DEPLOY_HOOK_URL
+        scope: RUN_TIME
+        type: SECRET
+      - key: PORT
+        scope: RUN_TIME
+        value: "8080"
+      - key: NODE_ENV
+        scope: RUN_TIME
+        value: production
+
+jobs:
+  - name: sync-resolutions
+    github:
+      repo: YOUR_GITHUB_ORG/oracledeck # Replace YOUR_GITHUB_ORG with your actual GitHub username or organization.
+      branch: main
+      deploy_on_push: true
+    source_dir: apps/api
+    kind: SCHEDULED
+    schedule: "*/30 * * * *"
+    build_command: npm install && npm run build && npx prisma generate
+    run_command: node dist/scripts/sync-resolutions.js
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${oracledeck-db.DATABASE_URL}
+      - key: METACULUS_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+
+databases:
+  - name: oracledeck-db
+    engine: PG
+    version: "16"
+    production: false
