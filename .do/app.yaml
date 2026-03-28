@@ -23,7 +23,7 @@ services:
         type: SECRET
       - key: FRONTEND_URL
         scope: RUN_TIME
-        value: https://your-app.vercel.app
+        value: https://oracle-dec.vercel.app
       - key: VERCEL_DEPLOY_HOOK_URL
         scope: RUN_TIME
         type: SECRET
