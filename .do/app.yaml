@@ -4,18 +4,16 @@ region: nyc
 services:
   - name: api
     github:
-      repo: dukemawex/Oracle-dec
+      repo: YOUR_GITHUB_ORG/oracledeck
       branch: main
       deploy_on_push: true
-    source_dir: apps/api
-    environment_slug: node-js
-    build_command: npm install && npm run build && npx prisma generate
-    run_command: npm start
+    source_dir: backend
+    dockerfile_path: backend/Dockerfile
     http_port: 8080
     instance_count: 1
     instance_size_slug: apps-s-1vcpu-1gb
     health_check:
-      http_path: /health
+      http_path: /healthz
     envs:
       - key: DATABASE_URL
         scope: RUN_TIME
@@ -38,14 +36,13 @@ services:
 
 jobs:
   - name: sync-resolutions
-    github:
-      repo: dukemawex/Oracle-dec
-      branch: main
-      deploy_on_push: true
-    source_dir: apps/api
     kind: SCHEDULED
-    schedule: "*/30 * * * *"
-    build_command: npm install && npm run build && npx prisma generate
+    schedule: "0 2 * * *"
+    github:
+      repo: YOUR_GITHUB_ORG/oracledeck
+      branch: main
+    source_dir: backend
+    dockerfile_path: backend/Dockerfile
     run_command: node dist/scripts/sync-resolutions.js
     envs:
       - key: DATABASE_URL
