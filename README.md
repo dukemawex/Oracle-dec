@@ -4,7 +4,7 @@ OracleDeck is a production-ready forecasting system made of four integrated part
 
 - **Forecasting Bot (Python 3.11)**: scheduled GitHub Actions runner targeting `spring-aib-2026` and `mini-bench`, using Exa research + OpenRouter (`tinyfish/tinyfish`, `openai/gpt-5.4`), then syncing full batch logs to backend.
 - **Backend API (TypeScript/Express/Prisma/Postgres)**: authenticated ingest, analytics endpoints (calibration, Brier, extremization), and Metaculus resolution sync.
-- **Frontend Dashboard (Next.js 14 + Tailwind + SWR + Recharts)**: ISR (`revalidate=30`) + SWR polling (`30s`) + backend-triggered Vercel deploy hook for near-real-time updates.
+- **Frontend Dashboard (Next.js 14 + Tailwind + SWR + Recharts)**: ISR (`revalidate=30`) + SWR polling (`30s`) + backend-triggered Vercel deploy hook for near-real-time updates. Frontend reads backend URL from `NEXT_PUBLIC_BACKEND_URL`.
 - **Shared Package (TypeScript + Zod)**: canonical ingest schemas/types reused by backend for validation consistency.
 
 ## Repository Layout
@@ -45,6 +45,7 @@ npm run dev
 ```bash
 cd /home/runner/work/Oracle-dec/Oracle-dec/frontend
 npm install
+# configure NEXT_PUBLIC_BACKEND_URL via .env.local (see .env.example)
 npm run build
 npm run dev
 ```

@@ -1,6 +1,6 @@
 import type { BrierResponse, CalibrationResponse, ExtremizationResponse, ForecastResponse } from './types';
 
-const backendUrl = (process.env.BACKEND_URL ?? 'http://localhost:8080').replace(/\/$/, '');
+const backendUrl = (process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8080').replace(/\/$/, '');
 
 export function getApiUrl(path: string): string {
   return `${backendUrl}${path}`;
