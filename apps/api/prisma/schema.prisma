@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ForecastBatch {
+  id             String     @id @default(cuid())
+  batchTimestamp DateTime
+  createdAt      DateTime   @default(now())
+  forecasts      Forecast[]
+}
+
+model Forecast {
+  id                  String        @id @default(cuid())
+  questionId          Int
+  questionTitle       String
+  tournament          String
+  tinyfishProbability Float?
+  finalProbability    Float
+  model               String
+  createdAt           DateTime
+  resolved            Boolean       @default(false)
+  outcome             Boolean?
+  batchId             String
+  batch               ForecastBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([questionId, createdAt])
+  @@index([tournament, createdAt])
+}

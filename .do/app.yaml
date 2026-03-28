@@ -7,13 +7,13 @@ services:
       repo: YOUR_GITHUB_ORG/oracledeck
       branch: main
       deploy_on_push: true
-    source_dir: backend
-    dockerfile_path: backend/Dockerfile
+    source_dir: .
+    dockerfile_path: apps/api/Dockerfile
     http_port: 8080
     instance_count: 1
     instance_size_slug: apps-s-1vcpu-1gb
     health_check:
-      http_path: /healthz
+      http_path: /health
     envs:
       - key: DATABASE_URL
         scope: RUN_TIME
@@ -41,8 +41,8 @@ jobs:
     github:
       repo: YOUR_GITHUB_ORG/oracledeck
       branch: main
-    source_dir: backend
-    dockerfile_path: backend/Dockerfile
+    source_dir: .
+    dockerfile_path: apps/api/Dockerfile
     run_command: node dist/scripts/sync-resolutions.js
     envs:
       - key: DATABASE_URL
