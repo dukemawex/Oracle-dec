@@ -1,0 +1,1 @@
+"""OracleDeck forecasting bot package."""
