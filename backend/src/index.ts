@@ -2,7 +2,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { z } from 'zod';
+import { forecastBatchSchema, type ForecastBatchInput } from '@oracledeck/shared';
 
 dotenv.config();
 
@@ -20,23 +20,6 @@ if (!metaculusToken) {
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
-
-const recordSchema = z.object({
-  tournament: z.string().min(1),
-  questionId: z.number().int().positive(),
-  questionTitle: z.string().min(1),
-  tinyfishProbability: z.number().min(0).max(1).nullable(),
-  finalProbability: z.number().min(0).max(1),
-  model: z.string().min(1),
-  createdAt: z.string().datetime(),
-});
-
-const batchSchema = z.object({
-  batchTimestamp: z.string().datetime(),
-  records: z.array(recordSchema),
-});
-
-type IngestBatch = z.infer<typeof batchSchema>;
 
 function auth(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.header('authorization');
@@ -59,13 +42,13 @@ app.get('/healthz', (_req, res) => {
 });
 
 app.post('/api/forecasts/batch', auth, async (req, res) => {
-  const parse = batchSchema.safeParse(req.body);
+  const parse = forecastBatchSchema.safeParse(req.body);
   if (!parse.success) {
     res.status(400).json({ error: parse.error.flatten() });
     return;
   }
 
-  const body: IngestBatch = parse.data;
+  const body: ForecastBatchInput = parse.data;
 
   const batch = await prisma.forecastBatch.create({
     data: {
