@@ -4,7 +4,7 @@ region: nyc
 services:
   - name: api
     github:
-      repo: YOUR_GITHUB_ORG/oracledeck # Replace YOUR_GITHUB_ORG with your actual GitHub username or organization.
+      repo: dukemawex/Oracle-dec
       branch: main
       deploy_on_push: true
     source_dir: apps/api
@@ -39,7 +39,7 @@ services:
 jobs:
   - name: sync-resolutions
     github:
-      repo: YOUR_GITHUB_ORG/oracledeck # Replace YOUR_GITHUB_ORG with your actual GitHub username or organization.
+      repo: dukemawex/Oracle-dec
       branch: main
       deploy_on_push: true
     source_dir: apps/api
