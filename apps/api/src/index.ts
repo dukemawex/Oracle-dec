@@ -144,7 +144,7 @@ app.get('/api/analytics/extremization', async (_req, res) => {
     take: 200,
   });
 
-  const points = recent.map((f) => {
+  const points = recent.map((f: (typeof recent)[number]) => {
     const centered = f.finalProbability - 0.5;
     const extremized = Math.max(0.01, Math.min(0.99, 0.5 + centered * 1.15));
     return {
