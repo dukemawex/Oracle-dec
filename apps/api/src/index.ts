@@ -2,7 +2,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { forecastBatchSchema, type ForecastBatchInput } from '@oracledeck/shared';
+import { forecastBatchSchema, type ForecastBatchInput } from './shared/index.js';
 
 dotenv.config();
 
