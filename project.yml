@@ -1,4 +1,9 @@
-web_services:
-  - runtime: nodejs:24
-    buildpack-stack: ubuntu-22.04
+name: oracledeck
+services:
+  - name: api
+    github:
+      repo: dukemawex/Oracle-dec
+      branch: main
+      deploy_on_push: true
     source_dir: apps/api
+    run_command: npm run start
