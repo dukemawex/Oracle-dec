@@ -1,6 +1,7 @@
 name: oracledeck
 services:
-  - github:
+  - name: api
+    github:
       repo: dukemawex/Oracle-dec
       branch: main
       deploy_on_push: true
