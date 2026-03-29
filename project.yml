@@ -1,6 +1,5 @@
 name: oracledeck
 web_services:
-  - name: api
-    runtime: nodejs:24
+  - runtime: nodejs:24
     buildpack-stack: ubuntu-22.04
     source_dir: apps/api
