@@ -102,6 +102,25 @@ class OracleDeckBot:
         return content
 
     def _parse_json_content(self, content: str) -> Dict[str, Any]:
+        stripped = content.strip()
+        for candidate in (stripped, stripped.replace("```json", "").replace("```", "").strip()):
+            try:
+                data = json.loads(candidate)
+                if isinstance(data, dict):
+                    return data
+            except json.JSONDecodeError:
+                pass
+
+        first_brace = stripped.find("{")
+        last_brace = stripped.rfind("}")
+        if first_brace != -1 and last_brace != -1 and first_brace < last_brace:
+            try:
+                data = json.loads(stripped[first_brace : last_brace + 1])
+                if isinstance(data, dict):
+                    return data
+            except json.JSONDecodeError:
+                pass
+
         try:
             data = json.loads(content)
         except json.JSONDecodeError:
