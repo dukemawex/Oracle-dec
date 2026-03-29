@@ -1,5 +1,4 @@
-
-  - github:
+ - github:
       repo: dukemawex/Oracle-dec
       branch: main
       deploy_on_push: true
