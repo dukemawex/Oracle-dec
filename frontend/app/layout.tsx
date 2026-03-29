@@ -1,17 +1,19 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import AppNav from '../components/AppNav';
 
 export const metadata: Metadata = {
   title: 'OracleDeck Dashboard',
-  description: 'Superforecaster performance dashboard',
+  description: 'Autonomous Superforecaster dashboard',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }): JSX.Element {
   return (
     <html lang="en">
-      <body>
-        <main className="mx-auto max-w-6xl p-6">{children}</main>
+      <body className="min-h-screen bg-[var(--color-bg)] text-[var(--color-text)]">
+        <AppNav />
+        <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6">{children}</main>
       </body>
     </html>
   );

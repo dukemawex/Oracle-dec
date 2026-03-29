@@ -1,10 +1,10 @@
-import DashboardClient from '../components/DashboardClient';
-import { endpoints, fetcher } from '../lib/api';
-import type { BrierResponse, CalibrationResponse, ExtremizationResponse, ForecastResponse } from '../lib/types';
+import PerformanceClient from '../../components/PerformanceClient';
+import { endpoints, fetcher } from '../../lib/api';
+import type { BrierResponse, CalibrationResponse, ExtremizationResponse, ForecastResponse } from '../../lib/types';
 
 export const revalidate = 30;
 
-export default async function DashboardPage(): Promise<JSX.Element> {
+export default async function PerformancePage(): Promise<JSX.Element> {
   const [fallbackForecasts, fallbackBrier, fallbackCalibration, fallbackExtremization] = await Promise.all([
     fetcher<ForecastResponse>(endpoints.forecasts()),
     fetcher<BrierResponse>(endpoints.brier()),
@@ -13,7 +13,7 @@ export default async function DashboardPage(): Promise<JSX.Element> {
   ]);
 
   return (
-    <DashboardClient
+    <PerformanceClient
       fallbackForecasts={fallbackForecasts}
       fallbackBrier={fallbackBrier}
       fallbackCalibration={fallbackCalibration}
