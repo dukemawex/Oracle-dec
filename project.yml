@@ -1,4 +1,5 @@
-name: oracledeck
-description: OracleDeck superforecaster dashboard and bot
-purpose: Web Application
-environment: Production
+services:
+  - name: api
+    runtime: nodejs:24
+    buildpack-stack: ubuntu-22.04
+    source_dir: apps/api
