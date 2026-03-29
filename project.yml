@@ -1,4 +1,3 @@
-name: oracledeck
 services:
   - name: api
     runtime: nodejs:24
