@@ -1,4 +1,4 @@
-services:
-  - name: api
-    runtime: nodejs:24
-    buildpack-stack: gcf
+name: oracledeck
+description: OracleDeck superforecaster dashboard and bot
+purpose: Web Application
+environment: Production
