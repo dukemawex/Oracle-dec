@@ -3,6 +3,10 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "baseUrl": ".",
+    "paths": {
+      "@oracledeck/shared/*": ["./src/shared/*"]
+    },
     "outDir": "dist",
     "rootDir": "src",
     "strict": true,
