@@ -1,4 +1,4 @@
-name: oracledeck
+
 services:
   - github:
       repo: dukemawex/Oracle-dec
