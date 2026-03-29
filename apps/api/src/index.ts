@@ -130,7 +130,7 @@ app.get('/api/analytics/brier', async (_req, res) => {
   }
 
   const brier =
-    resolved.reduce((acc, f) => {
+    resolved.reduce((acc: number, f: (typeof resolved)[number]) => {
       const outcome = f.outcome ? 1 : 0;
       return acc + (f.finalProbability - outcome) ** 2;
     }, 0) / resolved.length;
