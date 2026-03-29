@@ -103,7 +103,8 @@ class OracleDeckBot:
 
     def _parse_json_content(self, content: str) -> Dict[str, Any]:
         stripped = content.strip()
-        for candidate in (stripped, stripped.replace("```json", "").replace("```", "").strip()):
+        markdown_stripped = stripped.replace("```json", "").replace("```", "").strip()
+        for candidate in (stripped, markdown_stripped):
             try:
                 data = json.loads(candidate)
                 if isinstance(data, dict):
