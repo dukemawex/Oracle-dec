@@ -1,5 +1,4 @@
 
-services:
   - github:
       repo: dukemawex/Oracle-dec
       branch: main
