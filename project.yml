@@ -1,6 +1,6 @@
-- github:
+  - github:
       repo: dukemawex/Oracle-dec
       branch: main
       deploy_on_push: true
-  source_dir: apps/api
-  run_command: npm run start
+    source_dir: apps/api
+    run_command: npm run start
