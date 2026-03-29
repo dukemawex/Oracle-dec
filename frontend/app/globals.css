@@ -16,7 +16,12 @@
   --color-muted: #64748b;
 }
 
-* {
+a,
+button,
+input,
+select,
+textarea,
+[role="button"] {
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 

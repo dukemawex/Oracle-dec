@@ -62,15 +62,17 @@ export default function PerformanceClient({
   }
 
   const rows = forecasts?.forecasts ?? [];
+  const toBrier = (probability: number, outcome: boolean | null): number =>
+    outcome === null ? probability * (1 - probability) : (probability - (outcome ? 1 : 0)) ** 2;
   const brierSeries = rows.slice(0, 25).map((row) => ({
     time: new Date(row.createdAt).toLocaleDateString(),
-    brier: Number((row.finalProbability * (1 - row.finalProbability)).toFixed(4)),
+    brier: Number(toBrier(row.finalProbability, row.outcome).toFixed(4)),
   }));
 
   const tournamentData = ['Spring AIB 2026', 'MiniBench', 'Market Pulse Q1'].map((tournament) => {
     const scoped = rows.filter((row) => row.tournament === tournament);
     const mean = scoped.length
-      ? scoped.reduce((sum, row) => sum + row.finalProbability * (1 - row.finalProbability), 0) / scoped.length
+      ? scoped.reduce((sum, row) => sum + toBrier(row.finalProbability, row.outcome), 0) / scoped.length
       : 0;
     return {
       tournament,

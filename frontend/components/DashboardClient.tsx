@@ -2,7 +2,7 @@
 
 import useSWR from 'swr';
 import { endpoints, fetcher } from '../lib/api';
-import type { BrierResponse, Forecast, ForecastResponse } from '../lib/types';
+import type { BrierResponse, CalibrationResponse, ExtremizationResponse, Forecast, ForecastResponse } from '../lib/types';
 import BotRunTimeline from './BotRunTimeline';
 import CalibrationChart from './CalibrationChart';
 import ExtremizationPanel from './ExtremizationPanel';
@@ -10,7 +10,6 @@ import ProbabilityPill from './ProbabilityPill';
 import StatCard from './StatCard';
 import StatusDot from './StatusDot';
 import TournamentBadge from './TournamentBadge';
-import type { CalibrationResponse, ExtremizationResponse } from '../lib/types';
 
 interface DashboardClientProps {
   fallbackForecasts: ForecastResponse | null;

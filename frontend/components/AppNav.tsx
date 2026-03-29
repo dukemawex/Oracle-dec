@@ -22,7 +22,7 @@ function NavLinks({ mobile = false, onNavigate }: { mobile?: boolean; onNavigate
             key={item.href}
             href={item.href}
             onClick={onNavigate}
-            className={`text-sm transition ${isActive ? 'text-[var(--color-text)]' : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'}`}
+            className={`text-sm ${isActive ? 'text-[var(--color-text)]' : 'text-[var(--color-muted)] hover:text-[var(--color-text)]'}`}
           >
             <span className={`border-b-2 pb-1 ${isActive ? 'border-[var(--color-primary)]' : 'border-transparent'}`}>{item.label}</span>
           </Link>

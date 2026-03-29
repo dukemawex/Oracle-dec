@@ -10,6 +10,7 @@ import TournamentBadge from './TournamentBadge';
 const types = ['All', 'Binary', 'Numeric', 'Multiple Choice'] as const;
 const tournaments = ['All', 'Spring AIB 2026', 'MiniBench', 'Market Pulse Q1'] as const;
 const PAGE_SIZE = 20;
+type ForecastType = (typeof types)[number];
 
 function Button({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }): JSX.Element {
   return (
@@ -36,9 +37,16 @@ export default function ForecastsClient({ fallbackData }: { fallbackData: Foreca
   const filtered = useMemo(() => {
     const source = data?.forecasts ?? [];
 
+    const getForecastType = (_item: ForecastResponse['forecasts'][number]): Exclude<ForecastType, 'All'> => 'Binary';
+
     return source
       .filter((item) => (tournamentFilter === 'All' ? true : item.tournament === tournamentFilter))
-      .filter(() => typeFilter === 'All' || typeFilter === 'Binary');
+      .filter((item) => {
+        if (typeFilter === 'All') {
+          return true;
+        }
+        return getForecastType(item) === typeFilter;
+      });
   }, [data, tournamentFilter, typeFilter]);
 
   if (error || data === null) {
