@@ -3,12 +3,12 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy API dependencies and install
-COPY apps/api/package*.json ./apps/api/
+COPY package*.json ./apps/api/
 WORKDIR /app/apps/api
 RUN npm ci
 
 # Copy API source and build
-COPY apps/api/ .
+COPY . .
 RUN npm run build
 
 # Stage 2: Production runner
