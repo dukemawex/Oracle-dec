@@ -1,6 +1,0 @@
-services:
-  - name: api
-    runtime: nodejs:24
-    environment:
-      - key: METACULUS_TOKEN
-        value: ${METACULUS_TOKEN}
