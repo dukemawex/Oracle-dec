@@ -1,6 +1,7 @@
 # Stage 1: Build
-FROM node:20-alpine AS builder
+FROM node:20-bookworm-slim AS builder
 WORKDIR /app
+RUN npm install -g npm@11.12.1
 
 # Copy API dependencies and install
 COPY package*.json ./apps/api/
@@ -12,9 +13,10 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Production runner
-FROM node:20-alpine AS runner
+FROM node:20-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+RUN npm install -g npm@11.12.1
 
 COPY --from=builder /app/apps/api/package*.json ./
 RUN npm ci --omit=dev
