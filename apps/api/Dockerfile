@@ -1,5 +1,6 @@
 # Stage 1: Build
-FROM node:20-bookworm-slim AS builder
+FROM node:20-alpine AS builder
+RUN apk add --no-cache openssl
 WORKDIR /app
 RUN npm install -g npm@11.12.1
 
@@ -13,7 +14,8 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Production runner
-FROM node:20-bookworm-slim AS runner
+FROM node:20-alpine AS runner
+RUN apk add --no-cache openssl
 WORKDIR /app
 ENV NODE_ENV=production
 RUN npm install -g npm@11.12.1
