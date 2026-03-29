@@ -24,7 +24,7 @@ MODELS = {
     "default": "openai/gpt-5.4",
     "parser": "mistralai/mistral-7b-instruct",
 }
-LEGACY_STAGE2_PROBABILITY_KEY = "tiny" "fishProbability"
+LEGACY_STAGE2_PROBABILITY_KEY = "tiny" + "fishProbability"
 
 
 class SummariserResponse(BaseModel):
@@ -111,7 +111,10 @@ class OracleDeckBot:
                 f"Text:\n{content}\n"
             )
             repaired = self._openrouter_chat(MODELS["parser"], repair_prompt)
-            data = json.loads(repaired)
+            try:
+                data = json.loads(repaired)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError("Parser model returned invalid JSON") from exc
 
         if not isinstance(data, dict):
             raise RuntimeError("Model output JSON must be an object")
