@@ -1,6 +1,4 @@
-  - github:
-      repo: dukemawex/Oracle-dec
-      branch: main
-      deploy_on_push: true
-    source_dir: apps/api
-    run_command: npm run start
+name: oracledeck
+description: OracleDeck superforecaster dashboard
+purpose: Web Application
+environment: Production
