@@ -19,9 +19,15 @@ LOGGER = logging.getLogger("oracledeck-bot")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 EXA_URL = "https://api.exa.ai/search"
 TOURNAMENT_SLUGS = ("spring-aib-2026", "mini-bench")
+MODELS = {
+    "summariser": "google/gemini-flash-1.5-8b",
+    "default": "openai/gpt-5.4",
+    "parser": "mistralai/mistral-7b-instruct",
+}
+LEGACY_STAGE2_PROBABILITY_KEY = "tiny" + "fishProbability"
 
 
-class TinyfishResponse(BaseModel):
+class SummariserResponse(BaseModel):
     probability: float = Field(ge=0.0, le=1.0)
     brief_reasoning: str
 
@@ -39,7 +45,7 @@ class ForecastRecord:
     tournament: str
     question_id: int
     question_title: str
-    tinyfish_probability: Optional[float]
+    summariser_probability: Optional[float]
     final_probability: float
     model: str
     created_at: str
@@ -64,6 +70,8 @@ class OracleDeckBot:
             OPENROUTER_URL,
             headers={
                 "Authorization": f"Bearer {self.openrouter_key}",
+                "HTTP-Referer": "https://oracledeck.app",
+                "X-Title": "OracleDeck",
                 "Content-Type": "application/json",
             },
             json={
@@ -92,6 +100,45 @@ class OracleDeckBot:
         if not isinstance(content, str):
             raise RuntimeError("OpenRouter returned non-string content")
         return content
+
+    def _parse_json_content(self, content: str) -> Dict[str, Any]:
+        stripped = content.strip()
+        markdown_stripped = stripped.replace("```json", "").replace("```", "").strip()
+        for candidate in (stripped, markdown_stripped):
+            try:
+                data = json.loads(candidate)
+                if isinstance(data, dict):
+                    return data
+            except json.JSONDecodeError:
+                pass
+
+        first_brace = stripped.find("{")
+        last_brace = stripped.rfind("}")
+        if first_brace != -1 and last_brace != -1 and first_brace < last_brace:
+            try:
+                data = json.loads(stripped[first_brace : last_brace + 1])
+                if isinstance(data, dict):
+                    return data
+            except json.JSONDecodeError:
+                pass
+
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            repair_prompt = (
+                "Extract the single valid JSON object from the following text. "
+                "Return ONLY JSON with no markdown, no commentary.\n"
+                f"Text:\n{content}\n"
+            )
+            repaired = self._openrouter_chat(MODELS["parser"], repair_prompt)
+            try:
+                data = json.loads(repaired)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError("Parser model returned invalid JSON") from exc
+
+        if not isinstance(data, dict):
+            raise RuntimeError("Model output JSON must be an object")
+        return data
 
     def _exa_search(self, query: str) -> List[Dict[str, str]]:
         response = requests.post(
@@ -164,7 +211,7 @@ class OracleDeckBot:
             )
         return "\n---\n".join(chunks)
 
-    def stage2_tinyfish(self, question_text: str, research: str) -> Optional[TinyfishResponse]:
+    def stage2_summariser(self, question_text: str, research: str) -> Optional[SummariserResponse]:
         prompt = (
             "You are estimating a binary event probability. Return ONLY JSON with keys "
             "probability (0 to 1 float) and brief_reasoning.\n"
@@ -173,15 +220,15 @@ class OracleDeckBot:
         )
 
         try:
-            content = self._openrouter_chat("tinyfish/tinyfish", prompt)
-            data = json.loads(content)
-            return TinyfishResponse.model_validate(data)
+            content = self._openrouter_chat(MODELS["summariser"], prompt)
+            data = self._parse_json_content(content)
+            return SummariserResponse.model_validate(data)
         except (requests.RequestException, json.JSONDecodeError, ValidationError, RuntimeError) as exc:
-            LOGGER.warning("Stage 2 tinyfish failed: %s", exc)
+            LOGGER.warning("Stage 2 summariser failed: %s", exc)
             return None
 
-    def stage3_gpt(self, question_text: str, research: str, tinyfish_p: Optional[float]) -> GPTForecastResponse:
-        tinyfish_fragment = "None" if tinyfish_p is None else f"{tinyfish_p:.4f}"
+    def stage3_gpt(self, question_text: str, research: str, summariser_p: Optional[float]) -> GPTForecastResponse:
+        summariser_fragment = "None" if summariser_p is None else f"{summariser_p:.4f}"
         prompt = (
             "You are an elite calibrated superforecaster.\n"
             "Instructions:\n"
@@ -193,12 +240,12 @@ class OracleDeckBot:
             "Return ONLY valid JSON with exactly keys:\n"
             "{\"probability\": float_0_to_1, \"base_rate\": string, \"key_evidence\": string[], \"null_hypothesis\": string, \"rationale\": string}.\n"
             f"Question: {question_text}\n"
-            f"Tinyfish estimate: {tinyfish_fragment}\n"
+            f"Summariser estimate: {summariser_fragment}\n"
             f"Research:\n{research}\n"
         )
 
-        content = self._openrouter_chat("openai/gpt-5.4", prompt)
-        data = json.loads(content)
+        content = self._openrouter_chat(MODELS["default"], prompt)
+        data = self._parse_json_content(content)
         return GPTForecastResponse.model_validate(data)
 
     def fetch_open_questions(self, tournament_slug: str) -> List[Dict[str, Any]]:
@@ -235,7 +282,7 @@ class OracleDeckBot:
                     "tournament": record.tournament,
                     "questionId": record.question_id,
                     "questionTitle": record.question_title,
-                    "tinyfishProbability": record.tinyfish_probability,
+                    LEGACY_STAGE2_PROBABILITY_KEY: record.summariser_probability,
                     "finalProbability": record.final_probability,
                     "model": record.model,
                     "createdAt": record.created_at,
@@ -272,13 +319,13 @@ class OracleDeckBot:
                     continue
 
                 research = self.build_research(title_value)
-                tinyfish = self.stage2_tinyfish(title_value, research)
+                summariser = self.stage2_summariser(title_value, research)
 
                 try:
                     forecast = self.stage3_gpt(
                         question_text=title_value,
                         research=research,
-                        tinyfish_p=(tinyfish.probability if tinyfish else None),
+                        summariser_p=(summariser.probability if summariser else None),
                     )
                 except (requests.RequestException, json.JSONDecodeError, ValidationError, RuntimeError) as exc:
                     LOGGER.error("Stage 3 failed for question %s: %s", question_id_value, exc)
@@ -296,9 +343,9 @@ class OracleDeckBot:
                         tournament=slug,
                         question_id=question_id_value,
                         question_title=title_value,
-                        tinyfish_probability=(tinyfish.probability if tinyfish else None),
+                        summariser_probability=(summariser.probability if summariser else None),
                         final_probability=probability,
-                        model="openai/gpt-5.4",
+                        model=MODELS["default"],
                         created_at=datetime.now(timezone.utc).isoformat(),
                     )
                 )
