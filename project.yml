@@ -1,4 +1,3 @@
-name: oracledeck
 web_services:
   - runtime: nodejs:24
     buildpack-stack: ubuntu-22.04
