@@ -20,9 +20,9 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 EXA_URL = "https://api.exa.ai/search"
 TOURNAMENT_SLUGS = ("spring-aib-2026", "mini-bench")
 MODELS = {
-    "summariser": "google/gemini-flash-1.5-8b",
-    "default": "openai/gpt-5.4",
-    "parser": "mistralai/mistral-7b-instruct",
+    "default": "openrouter/openai/gpt-4.5",
+    "summariser": "openrouter/google/gemini-flash-1.5-8b",
+    "parser": "openrouter/mistralai/mistral-7b-instruct",
 }
 LEGACY_STAGE2_PROBABILITY_KEY = "tiny" + "fishProbability"
 
