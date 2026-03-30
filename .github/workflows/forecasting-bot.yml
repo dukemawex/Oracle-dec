@@ -1,4 +1,4 @@
-name: OracleDeck Forecasting Bot
+hname: OracleDeck Forecasting Bot
 
 on:
   schedule:
@@ -30,7 +30,8 @@ jobs:
         env:
           METACULUS_TOKEN: ${{ secrets.METACULUS_TOKEN }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
           EXA_API_KEY: ${{ secrets.EXA_API_KEY }}
           BACKEND_URL: ${{ secrets.BACKEND_URL }}
-          METACULUS_API_BASE: https://www.metaculus.com/api2
+          METACULUS_API_BASE: https://shjrjrjds.metaculus.com/api2
         run: PYTHONPATH=src python -m oracledeck_bot.main
