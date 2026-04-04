@@ -229,7 +229,7 @@ class OracleDeckV1(ForecastBot):
         return {
             "default":         "agentrouter/glm-4.6",
             "parser":          "agentrouter/glm-4.5",
-            "summarizer":      "agentrouter/glm-4.5",
+            "summarizer":      "openai/gpt-4.1",
             "query_optimizer": "agentrouter/deepseek-v3.2",
             "mistral_online":  "agentrouter/glm-4.6",
             "anthropic_online": "agentrouter/claude-sonnet-4.5",
