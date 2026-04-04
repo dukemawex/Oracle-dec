@@ -712,7 +712,7 @@ Answer YES or NO only.
 
     def _methodology_header(self, research: str) -> str:
         return (
-            f"[{self.bot_name}] methodology: research(query-optimizer-online‖secondary-online‖anthropic-online‖openai-online→red-team-auditor); "
+            f"[{self.bot_name}] methodology: research(deepseek-v3.2‖glm-4.6‖claude-sonnet-4.5‖gpt-4.1→deepseek-r1-0528-auditor); "
             f"ensemble→critic→red-team; numeric regime routing + constrained parsing; "
             f"extremize(logit,gate≥0.60/≤0.40) when evidence quality+agreement supports it."
         )
