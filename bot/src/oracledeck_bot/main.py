@@ -222,7 +222,7 @@ class OracleDeckV1(ForecastBot):
 
     def _llm_config_defaults(self) -> Dict[str, str]:
         # Role mapping using AgentRouter models requested for this bot.
-        # Search/web retrieval: query_optimizer + mistral_online
+        # Search/web retrieval: existing gatherers + anthropic/openai online gatherers
         # Parsing/summarization: parser + summarizer
         # Forecast/judge/critic/decomposition: default + critic + decomposer
         # Adversarial review: red_team
@@ -232,6 +232,8 @@ class OracleDeckV1(ForecastBot):
             "summarizer":      "agentrouter/glm-4.5",
             "query_optimizer": "agentrouter/deepseek-v3.2",
             "mistral_online":  "agentrouter/glm-4.6",
+            "anthropic_online": "agentrouter/claude-sonnet-4.5",
+            "openai_online":    "agentrouter/gpt-4.1",
             "critic":          "agentrouter/glm-4.6",
             "red_team":        "agentrouter/deepseek-r1-0528",
             "decomposer":      "agentrouter/deepseek-v3.1",
@@ -291,23 +293,31 @@ Resolution criteria:
 
     async def run_research(self, question: MetaculusQuestion) -> str:
         """
-        Three-stage free-model research pipeline.
+        Multi-stage free-model research pipeline.
 
-        Stage 1a — Gatherer 1 (Sonar Small 128k online):
+        Stage 1a — Gatherer 1 (query optimizer online):
             Live web retrieval focused on latest data and base rates.
 
-        Stage 1b — Gatherer 2 (Mistral Small 3.1 24B online) — parallel:
+        Stage 1b — Gatherer 2 (secondary online gatherer) — parallel:
             Independent live retrieval pass for cross-verification and
             coverage of sources the first gatherer may have missed.
 
-        Stage 2 — Auditor (Mistral 7B):
-            Receives merged output from both gatherers. Flags date/scope
+        Stage 1c — Gatherer 3 (Anthropic online) — parallel:
+            Additional independent retrieval pass via Anthropic-compatible routing.
+
+        Stage 1d — Gatherer 4 (OpenAI online) — parallel:
+            Additional independent retrieval pass via OpenAI-compatible routing.
+
+        Stage 2 — Auditor (red-team model):
+            Receives merged output from all gatherers. Flags date/scope
             conflicts, states YES-resolution direction, lists 3 domain-
             specific long-tail risks, rates forecast difficulty.
         """
-        gatherer1_llm = self.get_llm("query_optimizer", "llm")  # Sonar Small 128k online
-        gatherer2_llm = self.get_llm("mistral_online", "llm")   # Mistral Small 3.1 24B online
-        auditor_llm   = self.get_llm("red_team", "llm")          # Mistral 7B — auditor
+        gatherer1_llm = self.get_llm("query_optimizer", "llm")  # query-optimizer online gatherer
+        gatherer2_llm = self.get_llm("mistral_online", "llm")   # secondary online gatherer
+        gatherer3_llm = self.get_llm("anthropic_online", "llm") # Anthropic online gatherer
+        gatherer4_llm = self.get_llm("openai_online", "llm")    # OpenAI online gatherer
+        auditor_llm   = self.get_llm("red_team", "llm")          # red-team auditor
 
         gatherer_prompt = (
             f"Search for the latest 2026 data on: {question.question_text}\n\n"
@@ -318,30 +328,40 @@ Resolution criteria:
             f"over the last 20 years. Never return an empty report."
         )
 
-        # Both gatherers run in parallel
-        g1_result, g2_result = await asyncio.gather(
+        # All gatherers run in parallel
+        g1_result, g2_result, g3_result, g4_result = await asyncio.gather(
             gatherer1_llm.invoke(gatherer_prompt),
             gatherer2_llm.invoke(gatherer_prompt),
+            gatherer3_llm.invoke(gatherer_prompt),
+            gatherer4_llm.invoke(gatherer_prompt),
             return_exceptions=True,
         )
 
         if isinstance(g1_result, Exception):
-            logger.error(f"Gatherer 1 (Sonar) failed: {g1_result}")
+            logger.error(f"Gatherer 1 (query optimizer online) failed: {g1_result}")
             g1_result = "[Gatherer 1 failed]"
         if isinstance(g2_result, Exception):
-            logger.error(f"Gatherer 2 (Mistral online) failed: {g2_result}")
+            logger.error(f"Gatherer 2 (secondary online gatherer) failed: {g2_result}")
             g2_result = "[Gatherer 2 failed]"
+        if isinstance(g3_result, Exception):
+            logger.error(f"Gatherer 3 (Anthropic online) failed: {g3_result}")
+            g3_result = "[Gatherer 3 failed]"
+        if isinstance(g4_result, Exception):
+            logger.error(f"Gatherer 4 (OpenAI online) failed: {g4_result}")
+            g4_result = "[Gatherer 4 failed]"
 
         merged_research = (
-            f"### GATHERER 1 (Sonar Small online)\n{g1_result}\n\n"
-            f"### GATHERER 2 (Mistral Small 3.1 online)\n{g2_result}"
+            f"### GATHERER 1 (Query Optimizer Online)\n{g1_result}\n\n"
+            f"### GATHERER 2 (Secondary Online Gatherer)\n{g2_result}\n\n"
+            f"### GATHERER 3 (Anthropic online)\n{g3_result}\n\n"
+            f"### GATHERER 4 (OpenAI online)\n{g4_result}"
         )
 
         auditor_prompt = (
             f"You are a skeptical analyst reviewing forecasting research.\n\n"
             f"QUESTION: {question.question_text}\n"
             f"RESOLUTION CRITERIA: {question.resolution_criteria}\n\n"
-            f"RESEARCH TO AUDIT (two independent retrieval passes):\n{merged_research}\n\n"
+            f"RESEARCH TO AUDIT (multiple independent retrieval passes):\n{merged_research}\n\n"
             f"YOUR TASKS:\n"
             f"1. Identify any date or scope conflicts between the research and the "
             f"   resolution criteria.\n"
@@ -692,7 +712,7 @@ Answer YES or NO only.
 
     def _methodology_header(self, research: str) -> str:
         return (
-            f"[{self.bot_name}] methodology: research(sonar-small-online‖mistral-small-3.1-online→mistral-7b-auditor); "
+            f"[{self.bot_name}] methodology: research(query-optimizer-online‖secondary-online‖anthropic-online‖openai-online→red-team-auditor); "
             f"ensemble→critic→red-team; numeric regime routing + constrained parsing; "
             f"extremize(logit,gate≥0.60/≤0.40) when evidence quality+agreement supports it."
         )
