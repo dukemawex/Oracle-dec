@@ -44,6 +44,7 @@ LOGS_DIR.mkdir(exist_ok=True)
 # ---------------------------------------------------------------------------
 SPRING_TOURNAMENT_ID = "spring-aib-2026"
 MARKET_PULSE_TOURNAMENT_ID = "market-pulse-26q2"
+STANDARD_PERCENTILES = [0.1, 0.2, 0.4, 0.6, 0.8, 0.9]
 
 
 def sanitize_llm_json(text: str) -> str:
@@ -461,7 +462,7 @@ Rules:
         if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
             lo, hi = 0.0, 1.0
         w = {0.1: 0.05, 0.2: 0.15, 0.4: 0.40, 0.6: 0.60, 0.8: 0.85, 0.9: 0.95}
-        pcts = [Percentile(percentile=p, value=lo + (hi - lo) * w[p]) for p in [0.1, 0.2, 0.4, 0.6, 0.8, 0.9]]
+        pcts = [Percentile(percentile=p, value=lo + (hi - lo) * w[p]) for p in STANDARD_PERCENTILES]
         return OracleDeckV1._enforce_monotone(pcts)
 
     @staticmethod
@@ -475,6 +476,10 @@ Rules:
     def _p10_p90(pcts: List[Percentile]) -> Tuple[Optional[float], Optional[float]]:
         by = {round(float(p.percentile), 3): float(p.value) for p in pcts}
         return by.get(0.1), by.get(0.9)
+
+    @staticmethod
+    def _normalize_median_for_tracking(median: float) -> float:
+        return float(median / (abs(median) + 1.0))
 
     async def _parse_numeric_percentiles_robust(
         self, question: NumericQuestion, text: str, stage: str
@@ -804,7 +809,7 @@ Answer YES or NO only.
     def _normal_percentiles_from_mean_sd(mean: float, sd: float) -> List[Percentile]:
         z = {0.1: -1.2816, 0.2: -0.8416, 0.4: -0.2533, 0.6: 0.2533, 0.8: 0.8416, 0.9: 1.2816}
         out: List[Percentile] = []
-        for p in [0.1, 0.2, 0.4, 0.6, 0.8, 0.9]:
+        for p in STANDARD_PERCENTILES:
             out.append(Percentile(percentile=p, value=float(mean + z[p] * sd)))
         return OracleDeckV1._enforce_monotone(out)
 
@@ -965,7 +970,7 @@ Extract the latest observed level and a few recent values if available.
 
         dist = NumericDistribution.from_question(pcts, question)
         med = self._median_from_40_60(pcts)
-        self._recent_predictions.append((question, float(med / (abs(med) + 1.0)) if med else 0.0))
+        self._recent_predictions.append((question, self._normalize_median_for_tracking(med) if med else 0.0))
 
         reasoning = (
             f"{self._methodology_header(research)} "
@@ -1016,7 +1021,7 @@ Extract the latest observed level and a few recent values if available.
 
         dist = NumericDistribution.from_question(pcts, question)
         med = self._median_from_40_60(pcts)
-        self._recent_predictions.append((question, float(med / (abs(med) + 1.0)) if med else 0.0))
+        self._recent_predictions.append((question, self._normalize_median_for_tracking(med) if med else 0.0))
 
         reasoning = (
             f"{self._methodology_header(research)} "
@@ -1070,7 +1075,7 @@ Extract the latest observed level and a few recent values if available.
 
         dist = NumericDistribution.from_question(pcts, question)
         med = self._median_from_40_60(pcts)
-        self._recent_predictions.append((question, float(med / (abs(med) + 1.0)) if med else 0.0))
+        self._recent_predictions.append((question, self._normalize_median_for_tracking(med) if med else 0.0))
 
         reasoning = (
             f"{self._methodology_header(research)} "
@@ -1268,12 +1273,19 @@ OUTPUT ONLY JSON:
 
         community = getattr(question, "community_prediction", None)
         quality = self._research_quality_weight(research)
+        community_val: Optional[float] = None
+        if community is not None:
+            try:
+                community_val = float(community)
+            except (TypeError, ValueError):
+                logger.warning(f"Invalid community prediction value ignored: {community!r}")
+                community_val = None
         blended_p = (
-            (quality * averaged_p + (1 - quality) * float(community))
-            if (community is not None)
+            (quality * averaged_p + (1 - quality) * community_val)
+            if (community_val is not None)
             else averaged_p
         )
-        if community is not None:
+        if community_val is not None:
             applied.append("community-blend")
 
         # Extremize gate: ≥0.60 or ≤0.40 only
@@ -1418,7 +1430,7 @@ OUTPUT ONLY VALID JSON:
             final_pcts = self._bounds_fallback(question)
             dist = NumericDistribution.from_question(final_pcts, question)
             med = self._median_from_40_60(final_pcts)
-            self._recent_predictions.append((question, float(med / (abs(med) + 1.0)) if med else 0.0))
+            self._recent_predictions.append((question, self._normalize_median_for_tracking(med) if med else 0.0))
             return ReasonedPrediction(
                 prediction_value=dist,
                 reasoning=(
@@ -1471,9 +1483,8 @@ Percentile 90: XX
             )
         except Exception as e:
             logger.warning(f"Numeric critic failed, using ensemble percentile average fallback: {e}")
-            percentiles = [0.1, 0.2, 0.4, 0.6, 0.8, 0.9]
             averaged: List[Percentile] = []
-            for p in percentiles:
+            for p in STANDARD_PERCENTILES:
                 vals = [
                     float(pp.value)
                     for model_pcts in results
@@ -1489,7 +1500,7 @@ Percentile 90: XX
 
         dist = NumericDistribution.from_question(final_pcts, question)
         med = self._median_from_40_60(final_pcts)
-        self._recent_predictions.append((question, float(med / (abs(med) + 1.0)) if med else 0.0))
+        self._recent_predictions.append((question, self._normalize_median_for_tracking(med) if med else 0.0))
 
         return ReasonedPrediction(
             prediction_value=dist,
