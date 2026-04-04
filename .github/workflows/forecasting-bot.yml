@@ -1,4 +1,4 @@
-hname: OracleDeck Forecasting Bot
+name: OracleDeck Forecasting Bot
 
 on:
   schedule:
