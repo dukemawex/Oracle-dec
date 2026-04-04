@@ -219,17 +219,17 @@ class OracleDeckV1(ForecastBot):
         self._recent_predictions: list[tuple[MetaculusQuestion, float]] = []
 
     def _llm_config_defaults(self) -> Dict[str, str]:
-        # Free-tier OpenRouter model.
+        # Free-tier OpenRouter models.
         venice_model = "openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
         return {
-            "default":         venice_model,
-            "parser":          venice_model,
-            "summarizer":      venice_model,
+            "default":         "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+            "parser":          "openrouter/meta-llama/llama-3.1-8b-instruct:free",
+            "summarizer":      "openrouter/meta-llama/llama-3.1-8b-instruct:free",
             "query_optimizer": venice_model,
             "mistral_online":  venice_model,
-            "critic":          venice_model,
-            "red_team":        venice_model,
-            "decomposer":      venice_model,
+            "critic":          "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+            "red_team":        "openrouter/mistralai/mistral-7b-instruct:free",
+            "decomposer":      "openrouter/meta-llama/llama-3.3-70b-instruct:free",
         }
 
     # ------------------------------------------------------------------
@@ -1208,7 +1208,8 @@ Percentile 90: XX
         self._ensure_some_research_or_raise(research)
 
         forecasters = [
-            "openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+            "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+            "openrouter/mistralai/mistral-7b-instruct:free",
         ]
         results = await self._collect_successful_model_forecasts(forecasters, question, research)
         if not results:
@@ -1326,13 +1327,23 @@ OUTPUT ONLY JSON:
         self, question: MultipleChoiceQuestion, research: str
     ) -> ReasonedPrediction[PredictedOptionList]:
         self._ensure_some_research_or_raise(research)
+        if not question.options:
+            empty = safe_model(PredictedOptionList, {"predicted_options": []})  # type: ignore[assignment]
+            return ReasonedPrediction(
+                prediction_value=empty,
+                reasoning=(
+                    f"{self._methodology_header(research)} "
+                    "MC fallback: question has no options; returning empty distribution."
+                ),
+            )
 
         forecasters = [
-            "openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+            "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+            "openrouter/mistralai/mistral-7b-instruct:free",
         ]
         results = await self._collect_successful_model_forecasts(forecasters, question, research)
         if not results:
-            uniform = 1.0 / len(question.options) if question.options else 0.0
+            uniform = 1.0 / len(question.options)
             fallback = [{"option_name": opt, "probability": uniform} for opt in question.options]
             final_val = safe_model(PredictedOptionList, {"predicted_options": fallback})  # type: ignore[assignment]
             self._recent_predictions.append((question, uniform))
@@ -1418,7 +1429,8 @@ OUTPUT ONLY VALID JSON:
         self._ensure_some_research_or_raise(research)
 
         forecasters = [
-            "openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+            "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+            "openrouter/mistralai/mistral-7b-instruct:free",
         ]
         results: List[List[Percentile]] = await self._collect_successful_model_forecasts(
             forecasters, question, research
