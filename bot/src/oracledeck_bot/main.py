@@ -42,7 +42,7 @@ LOGS_DIR.mkdir(exist_ok=True)
 # Spring Tournament ID — update if Metaculus changes the slug/ID for the
 # current Spring Tournament season.
 # ---------------------------------------------------------------------------
-SPRING_TOURNAMENT_ID = "spring-forecasting-tournament-2025"
+SPRING_TOURNAMENT_ID = "spring-aib-2026"
 
 
 def sanitize_llm_json(text: str) -> str:
@@ -1490,4 +1490,3 @@ if __name__ == "__main__":
         bot.log_report_summary(spring_reports + minibench_reports)
 
     asyncio.run(run())
-
