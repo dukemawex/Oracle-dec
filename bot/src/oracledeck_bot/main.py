@@ -481,6 +481,16 @@ Rules:
     def _normalize_median_for_tracking(median: float) -> float:
         return float(median / (abs(median) + 1.0))
 
+    @staticmethod
+    def _safe_parse_community_prediction(community: Any) -> Optional[float]:
+        if community is None:
+            return None
+        try:
+            return float(community)
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid community prediction value ignored: {community!r}")
+            return None
+
     async def _parse_numeric_percentiles_robust(
         self, question: NumericQuestion, text: str, stage: str
     ) -> List[Percentile]:
@@ -1209,8 +1219,10 @@ Percentile 90: XX
         ]
         results = await self._collect_successful_model_forecasts(forecasters, question, research)
         if not results:
-            community = getattr(question, "community_prediction", None)
-            fallback_p = float(community) if community is not None else 0.5
+            community_val = self._safe_parse_community_prediction(
+                getattr(question, "community_prediction", None)
+            )
+            fallback_p = community_val if community_val is not None else 0.5
             fallback_p = float(np.clip(fallback_p, 0.01, 0.99))
             self._recent_predictions.append((question, fallback_p))
             return ReasonedPrediction(
@@ -1218,7 +1230,7 @@ Percentile 90: XX
                 reasoning=(
                     f"{self._methodology_header(research)} "
                     f"Binary fallback: no forecaster models available; using "
-                    f"{'community prediction' if community is not None else 'neutral prior'}."
+                    f"{'community prediction' if community_val is not None else 'neutral prior'}."
                 ),
             )
         model_probs = [float(r.prediction_in_decimal) for r in results]
@@ -1273,13 +1285,7 @@ OUTPUT ONLY JSON:
 
         community = getattr(question, "community_prediction", None)
         quality = self._research_quality_weight(research)
-        community_val: Optional[float] = None
-        if community is not None:
-            try:
-                community_val = float(community)
-            except (TypeError, ValueError):
-                logger.warning(f"Invalid community prediction value ignored: {community!r}")
-                community_val = None
+        community_val = self._safe_parse_community_prediction(community)
         blended_p = (
             (quality * averaged_p + (1 - quality) * community_val)
             if (community_val is not None)
