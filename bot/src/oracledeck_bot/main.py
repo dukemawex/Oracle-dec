@@ -44,6 +44,9 @@ LOGS_DIR.mkdir(exist_ok=True)
 # ---------------------------------------------------------------------------
 SPRING_TOURNAMENT_ID = "spring-aib-2026"
 MARKET_PULSE_TOURNAMENT_ID = "market-pulse-26q2"
+STANDARD_PERCENTILES = [0.1, 0.2, 0.4, 0.6, 0.8, 0.9]
+MIN_BINARY_PROB = 0.01
+MAX_BINARY_PROB = 0.99
 
 
 def sanitize_llm_json(text: str) -> str:
@@ -193,10 +196,10 @@ class OracleDeckV1(ForecastBot):
     """
     OracleDeck v1 — Spring Tournament forecasting bot.
 
-    Research providers : Sonar Small 128k online + Mistral Small 3.1 24B online (parallel gatherers) → Mistral 7B (auditor). No external API keys required.
-    Forecasting models : Llama 3.3 70B (judge/critic/decomposer) + Mistral 7B (red-team/auditor)
-                         + Sonar Small (query optimisation) + Llama 3.1 8B (parser).
-                         All free-tier via OpenRouter.
+    Research providers : GLM-4.6 + DeepSeek-V3.2 (parallel gatherers) → DeepSeek-V3.1 (auditor).
+    Forecasting models : GLM-4.6 (judge/critic/decomposer) + DeepSeek-R1-0528 (red-team)
+                         + DeepSeek-V3.2 (query optimisation/search) + GLM-4.5 (parser/summarizer).
+                         Routed via AgentRouter.
     Extremize         : enabled by default (≥60 / ≤40 gate, logit method).
     Target            : Spring Tournament + Mini Bench.
     """
@@ -218,23 +221,22 @@ class OracleDeckV1(ForecastBot):
         self._recent_predictions: list[tuple[MetaculusQuestion, float]] = []
 
     def _llm_config_defaults(self) -> Dict[str, str]:
-        # Free-tier models only (confirmed $0/M on OpenRouter as of April 2026).
-        # Role mapping:
-        #   query_optimizer  → Sonar Small 128k     (live web retrieval — gatherer 1)
-        #   mistral_online   → Mistral Small 3.1 24B (live web retrieval — gatherer 2)
-        #   red_team/auditor → Mistral 7B            (skeptical critique / auditor)
-        #   judge/critic     → Llama 3.3 70B         (strongest free reasoner)
-        #   parser/summarizer→ Llama 3.1 8B          (lightweight structured output)
-        #   decomposer       → Llama 3.3 70B         (needs broad reasoning)
+        # Role mapping using AgentRouter models requested for this bot.
+        # Search/web retrieval: existing gatherers + anthropic/openai online gatherers
+        # Parsing/summarization: parser + summarizer
+        # Forecast/judge/critic/decomposition: default + critic + decomposer
+        # Adversarial review: red_team
         return {
-            "default":         "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            "parser":          "openrouter/meta-llama/llama-3.1-8b-instruct:free",
-            "summarizer":      "openrouter/meta-llama/llama-3.1-8b-instruct:free",
-            "query_optimizer": "openrouter/perplexity/llama-3.1-sonar-small-128k-online",
-            "mistral_online":  "openrouter/mistralai/mistral-small-3.1-24b-instruct:free",
-            "critic":          "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            "red_team":        "openrouter/mistralai/mistral-7b-instruct:free",
-            "decomposer":      "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+            "default":         "agentrouter/glm-4.6",
+            "parser":          "agentrouter/glm-4.5",
+            "summarizer":      "agentrouter/glm-4.5",
+            "query_optimizer": "agentrouter/deepseek-v3.2",
+            "mistral_online":  "agentrouter/glm-4.6",
+            "anthropic_online": "agentrouter/claude-sonnet-4.5",
+            "openai_online":    "agentrouter/gpt-4.1",
+            "critic":          "agentrouter/glm-4.6",
+            "red_team":        "agentrouter/deepseek-r1-0528",
+            "decomposer":      "agentrouter/deepseek-v3.1",
         }
 
     # ------------------------------------------------------------------
@@ -291,23 +293,31 @@ Resolution criteria:
 
     async def run_research(self, question: MetaculusQuestion) -> str:
         """
-        Three-stage free-model research pipeline.
+        Multi-stage free-model research pipeline.
 
-        Stage 1a — Gatherer 1 (Sonar Small 128k online):
+        Stage 1a — Gatherer 1 (query optimizer online):
             Live web retrieval focused on latest data and base rates.
 
-        Stage 1b — Gatherer 2 (Mistral Small 3.1 24B online) — parallel:
+        Stage 1b — Gatherer 2 (secondary online gatherer) — parallel:
             Independent live retrieval pass for cross-verification and
             coverage of sources the first gatherer may have missed.
 
-        Stage 2 — Auditor (Mistral 7B):
-            Receives merged output from both gatherers. Flags date/scope
+        Stage 1c — Gatherer 3 (Anthropic online) — parallel:
+            Additional independent retrieval pass via Anthropic-compatible routing.
+
+        Stage 1d — Gatherer 4 (OpenAI online) — parallel:
+            Additional independent retrieval pass via OpenAI-compatible routing.
+
+        Stage 2 — Auditor (red-team model):
+            Receives merged output from all gatherers. Flags date/scope
             conflicts, states YES-resolution direction, lists 3 domain-
             specific long-tail risks, rates forecast difficulty.
         """
-        gatherer1_llm = self.get_llm("query_optimizer", "llm")  # Sonar Small 128k online
-        gatherer2_llm = self.get_llm("mistral_online", "llm")   # Mistral Small 3.1 24B online
-        auditor_llm   = self.get_llm("red_team", "llm")          # Mistral 7B — auditor
+        gatherer1_llm = self.get_llm("query_optimizer", "llm")  # query-optimizer online gatherer
+        gatherer2_llm = self.get_llm("mistral_online", "llm")   # secondary online gatherer
+        gatherer3_llm = self.get_llm("anthropic_online", "llm") # Anthropic online gatherer
+        gatherer4_llm = self.get_llm("openai_online", "llm")    # OpenAI online gatherer
+        auditor_llm   = self.get_llm("red_team", "llm")          # red-team auditor
 
         gatherer_prompt = (
             f"Search for the latest 2026 data on: {question.question_text}\n\n"
@@ -318,30 +328,40 @@ Resolution criteria:
             f"over the last 20 years. Never return an empty report."
         )
 
-        # Both gatherers run in parallel
-        g1_result, g2_result = await asyncio.gather(
+        # All gatherers run in parallel
+        g1_result, g2_result, g3_result, g4_result = await asyncio.gather(
             gatherer1_llm.invoke(gatherer_prompt),
             gatherer2_llm.invoke(gatherer_prompt),
+            gatherer3_llm.invoke(gatherer_prompt),
+            gatherer4_llm.invoke(gatherer_prompt),
             return_exceptions=True,
         )
 
         if isinstance(g1_result, Exception):
-            logger.error(f"Gatherer 1 (Sonar) failed: {g1_result}")
+            logger.error(f"Gatherer 1 (query optimizer online) failed: {g1_result}")
             g1_result = "[Gatherer 1 failed]"
         if isinstance(g2_result, Exception):
-            logger.error(f"Gatherer 2 (Mistral online) failed: {g2_result}")
+            logger.error(f"Gatherer 2 (secondary online gatherer) failed: {g2_result}")
             g2_result = "[Gatherer 2 failed]"
+        if isinstance(g3_result, Exception):
+            logger.error(f"Gatherer 3 (Anthropic online) failed: {g3_result}")
+            g3_result = "[Gatherer 3 failed]"
+        if isinstance(g4_result, Exception):
+            logger.error(f"Gatherer 4 (OpenAI online) failed: {g4_result}")
+            g4_result = "[Gatherer 4 failed]"
 
         merged_research = (
-            f"### GATHERER 1 (Sonar Small online)\n{g1_result}\n\n"
-            f"### GATHERER 2 (Mistral Small 3.1 online)\n{g2_result}"
+            f"### GATHERER 1 (Query Optimizer Online)\n{g1_result}\n\n"
+            f"### GATHERER 2 (Secondary Online Gatherer)\n{g2_result}\n\n"
+            f"### GATHERER 3 (Anthropic online)\n{g3_result}\n\n"
+            f"### GATHERER 4 (OpenAI online)\n{g4_result}"
         )
 
         auditor_prompt = (
             f"You are a skeptical analyst reviewing forecasting research.\n\n"
             f"QUESTION: {question.question_text}\n"
             f"RESOLUTION CRITERIA: {question.resolution_criteria}\n\n"
-            f"RESEARCH TO AUDIT (two independent retrieval passes):\n{merged_research}\n\n"
+            f"RESEARCH TO AUDIT (multiple independent retrieval passes):\n{merged_research}\n\n"
             f"YOUR TASKS:\n"
             f"1. Identify any date or scope conflicts between the research and the "
             f"   resolution criteria.\n"
@@ -461,7 +481,7 @@ Rules:
         if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
             lo, hi = 0.0, 1.0
         w = {0.1: 0.05, 0.2: 0.15, 0.4: 0.40, 0.6: 0.60, 0.8: 0.85, 0.9: 0.95}
-        pcts = [Percentile(percentile=p, value=lo + (hi - lo) * w[p]) for p in [0.1, 0.2, 0.4, 0.6, 0.8, 0.9]]
+        pcts = [Percentile(percentile=p, value=lo + (hi - lo) * w[p]) for p in STANDARD_PERCENTILES]
         return OracleDeckV1._enforce_monotone(pcts)
 
     @staticmethod
@@ -475,6 +495,27 @@ Rules:
     def _p10_p90(pcts: List[Percentile]) -> Tuple[Optional[float], Optional[float]]:
         by = {round(float(p.percentile), 3): float(p.value) for p in pcts}
         return by.get(0.1), by.get(0.9)
+
+    @staticmethod
+    def _normalize_median_for_tracking(median: float) -> float:
+        """Map any median to (-1, 1) for bounded internal consistency tracking."""
+        return float(median / (abs(median) + 1.0))
+
+    @staticmethod
+    def _safe_parse_community_prediction(community: Any) -> Optional[float]:
+        """Return a numeric community prediction when parseable; otherwise None."""
+        if community is None:
+            return None
+        try:
+            return float(community)
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid community prediction value ignored: {community!r}")
+            return None
+
+    @staticmethod
+    def _build_predicted_option_list(options: List[Dict[str, float | str]]) -> PredictedOptionList:
+        """Create a typed predicted-options model from raw option dictionaries."""
+        return safe_model(PredictedOptionList, {"predicted_options": options})  # type: ignore[return-value]
 
     async def _parse_numeric_percentiles_robust(
         self, question: NumericQuestion, text: str, stage: str
@@ -671,7 +712,7 @@ Answer YES or NO only.
 
     def _methodology_header(self, research: str) -> str:
         return (
-            f"[{self.bot_name}] methodology: research(sonar-small-online‖mistral-small-3.1-online→mistral-7b-auditor); "
+            f"[{self.bot_name}] methodology: research(deepseek-v3.2‖glm-4.6‖claude-sonnet-4.5‖gpt-4.1→deepseek-r1-0528-auditor); "
             f"ensemble→critic→red-team; numeric regime routing + constrained parsing; "
             f"extremize(logit,gate≥0.60/≤0.40) when evidence quality+agreement supports it."
         )
@@ -804,7 +845,7 @@ Answer YES or NO only.
     def _normal_percentiles_from_mean_sd(mean: float, sd: float) -> List[Percentile]:
         z = {0.1: -1.2816, 0.2: -0.8416, 0.4: -0.2533, 0.6: 0.2533, 0.8: 0.8416, 0.9: 1.2816}
         out: List[Percentile] = []
-        for p in [0.1, 0.2, 0.4, 0.6, 0.8, 0.9]:
+        for p in STANDARD_PERCENTILES:
             out.append(Percentile(percentile=p, value=float(mean + z[p] * sd)))
         return OracleDeckV1._enforce_monotone(out)
 
@@ -965,7 +1006,7 @@ Extract the latest observed level and a few recent values if available.
 
         dist = NumericDistribution.from_question(pcts, question)
         med = self._median_from_40_60(pcts)
-        self._recent_predictions.append((question, float(med / (abs(med) + 1.0)) if med else 0.0))
+        self._recent_predictions.append((question, self._normalize_median_for_tracking(med) if med else 0.0))
 
         reasoning = (
             f"{self._methodology_header(research)} "
@@ -1016,7 +1057,7 @@ Extract the latest observed level and a few recent values if available.
 
         dist = NumericDistribution.from_question(pcts, question)
         med = self._median_from_40_60(pcts)
-        self._recent_predictions.append((question, float(med / (abs(med) + 1.0)) if med else 0.0))
+        self._recent_predictions.append((question, self._normalize_median_for_tracking(med) if med else 0.0))
 
         reasoning = (
             f"{self._methodology_header(research)} "
@@ -1070,7 +1111,7 @@ Extract the latest observed level and a few recent values if available.
 
         dist = NumericDistribution.from_question(pcts, question)
         med = self._median_from_40_60(pcts)
-        self._recent_predictions.append((question, float(med / (abs(med) + 1.0)) if med else 0.0))
+        self._recent_predictions.append((question, self._normalize_median_for_tracking(med) if med else 0.0))
 
         reasoning = (
             f"{self._methodology_header(research)} "
@@ -1174,6 +1215,22 @@ Percentile 90: XX
 
         raise TypeError(f"Unsupported question type: {type(question)}")
 
+    async def _collect_successful_model_forecasts(
+        self, model_names: List[str], question: MetaculusQuestion, research: str
+    ) -> List[Any]:
+        """Run forecast models concurrently and return only successful results."""
+        results = await asyncio.gather(
+            *[self._get_model_forecast(m, question, research) for m in model_names],
+            return_exceptions=True,
+        )
+        ok_results: List[Any] = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.warning(f"Forecaster model failed ({model_names[i]}): {result}")
+            else:
+                ok_results.append(result)
+        return ok_results
+
     # ------------------------------------------------------------------
     # Main forecast methods
     # ------------------------------------------------------------------
@@ -1184,12 +1241,25 @@ Percentile 90: XX
         self._ensure_some_research_or_raise(research)
 
         forecasters = [
-            "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            "openrouter/mistralai/mistral-7b-instruct:free",
+            "agentrouter/glm-4.6",
+            "agentrouter/deepseek-v3.1",
         ]
-        results = await asyncio.gather(
-            *[self._get_model_forecast(m, question, research) for m in forecasters]
-        )
+        results = await self._collect_successful_model_forecasts(forecasters, question, research)
+        if not results:
+            community_val = self._safe_parse_community_prediction(
+                getattr(question, "community_prediction", None)
+            )
+            fallback_p = community_val if community_val is not None else 0.5
+            fallback_p = float(np.clip(fallback_p, MIN_BINARY_PROB, MAX_BINARY_PROB))
+            self._recent_predictions.append((question, fallback_p))
+            return ReasonedPrediction(
+                prediction_value=fallback_p,
+                reasoning=(
+                    f"{self._methodology_header(research)} "
+                    f"Binary fallback: no forecaster models available; using "
+                    f"{'community prediction' if community_val is not None else 'neutral prior'}."
+                ),
+            )
         model_probs = [float(r.prediction_in_decimal) for r in results]
         forecast_map: Dict[str, float] = {
             f"model_{i}": float(r.prediction_in_decimal) for i, r in enumerate(results)
@@ -1197,9 +1267,10 @@ Percentile 90: XX
         spread = (max(model_probs) - min(model_probs)) if len(model_probs) > 1 else 0.0
 
         critic_llm = self.get_llm("critic", "llm")
-        critique = await critic_llm.invoke(
-            clean_indents(
-                f"""
+        try:
+            critique = await critic_llm.invoke(
+                clean_indents(
+                    f"""
 Question: {question.question_text}
 
 Research:
@@ -1211,15 +1282,18 @@ Ensemble model forecasts:
 OUTPUT ONLY JSON:
 {{"prediction_in_decimal": 0.75}}
 """
+                )
             )
-        )
-        critic_out = await structure_output(
-            sanitize_llm_json(critique),
-            BinaryPrediction,
-            model=self.get_llm("parser", "llm"),
-            num_validation_samples=self._structure_output_validation_samples,
-        )
-        raw_p = float(critic_out.prediction_in_decimal)
+            critic_out = await structure_output(
+                sanitize_llm_json(critique),
+                BinaryPrediction,
+                model=self.get_llm("parser", "llm"),
+                num_validation_samples=self._structure_output_validation_samples,
+            )
+            raw_p = float(critic_out.prediction_in_decimal)
+        except Exception as e:
+            logger.warning(f"Binary critic failed, using ensemble mean fallback: {e}")
+            raw_p = float(np.mean(model_probs))
 
         red_teamed_p = await self._red_team_forecast(question, research, raw_p)
         averaged_p = 0.5 * (raw_p + red_teamed_p)
@@ -1238,12 +1312,13 @@ OUTPUT ONLY JSON:
 
         community = getattr(question, "community_prediction", None)
         quality = self._research_quality_weight(research)
+        community_val = self._safe_parse_community_prediction(community)
         blended_p = (
-            (quality * averaged_p + (1 - quality) * float(community))
-            if (community is not None)
+            (quality * averaged_p + (1 - quality) * community_val)
+            if (community_val is not None)
             else averaged_p
         )
-        if community is not None:
+        if community_val is not None:
             applied.append("community-blend")
 
         # Extremize gate: ≥0.60 or ≤0.40 only
@@ -1266,7 +1341,7 @@ OUTPUT ONLY JSON:
         except Exception:
             p_cal = p_time
 
-        final_p = float(np.clip(p_cal, 0.01, 0.99))
+        final_p = float(np.clip(p_cal, MIN_BINARY_PROB, MAX_BINARY_PROB))
         self._recent_predictions.append((question, final_p))
 
         reasoning = self._short_reasoning_binary(
@@ -1285,23 +1360,43 @@ OUTPUT ONLY JSON:
         self, question: MultipleChoiceQuestion, research: str
     ) -> ReasonedPrediction[PredictedOptionList]:
         self._ensure_some_research_or_raise(research)
+        if not question.options:
+            empty = self._build_predicted_option_list([])
+            return ReasonedPrediction(
+                prediction_value=empty,
+                reasoning=(
+                    f"{self._methodology_header(research)} "
+                    "MC fallback: question has no options; returning empty distribution."
+                ),
+            )
 
         forecasters = [
-            "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            "openrouter/mistralai/mistral-7b-instruct:free",
+            "agentrouter/glm-4.6",
+            "agentrouter/deepseek-v3.1",
         ]
-        results = await asyncio.gather(
-            *[self._get_model_forecast(m, question, research) for m in forecasters]
-        )
+        results = await self._collect_successful_model_forecasts(forecasters, question, research)
+        if not results:
+            uniform = 1.0 / len(question.options)
+            fallback = [{"option_name": opt, "probability": uniform} for opt in question.options]
+            final_val = self._build_predicted_option_list(fallback)
+            self._recent_predictions.append((question, uniform))
+            return ReasonedPrediction(
+                prediction_value=final_val,
+                reasoning=(
+                    f"{self._methodology_header(research)} "
+                    "MC fallback: no forecaster models available; using uniform distribution."
+                ),
+            )
         forecast_map = {f"model_{i}": r.model_dump() for i, r in enumerate(results)}
 
         critic_llm = self.get_llm("critic", "llm")
         schema_example = json.dumps(
             {"predicted_options": [{"option_name": opt, "probability": 0.5} for opt in question.options[:2]]}
         )
-        critique = await critic_llm.invoke(
-            clean_indents(
-                f"""
+        try:
+            critique = await critic_llm.invoke(
+                clean_indents(
+                    f"""
 Question: {question.question_text}
 Options: {question.options}
 
@@ -1314,14 +1409,31 @@ Ensemble model forecasts:
 OUTPUT ONLY VALID JSON:
 {schema_example}
 """
+                )
             )
-        )
-        final_list: PredictedOptionList = await structure_output(
-            sanitize_llm_json(critique),
-            PredictedOptionList,
-            model=self.get_llm("parser", "llm"),
-            num_validation_samples=self._structure_output_validation_samples,
-        )
+            final_list: PredictedOptionList = await structure_output(
+                sanitize_llm_json(critique),
+                PredictedOptionList,
+                model=self.get_llm("parser", "llm"),
+                num_validation_samples=self._structure_output_validation_samples,
+            )
+        except Exception as e:
+            logger.warning(f"MC critic failed, using ensemble average fallback: {e}")
+            by_option: Dict[str, List[float]] = {name: [] for name in question.options}
+            for r in results:
+                for po in r.predicted_options:
+                    if po.option_name in by_option:
+                        by_option[po.option_name].append(float(po.probability))
+            averaged = []
+            for name in question.options:
+                vals = by_option.get(name, [])
+                averaged.append(
+                    {
+                        "option_name": name,
+                        "probability": float(np.mean(vals)) if vals else 0.0,
+                    }
+                )
+            final_list = self._build_predicted_option_list(averaged)
 
         option_names = question.options
         current = {o.option_name: float(o.probability) for o in final_list.predicted_options}
@@ -1335,7 +1447,7 @@ OUTPUT ONLY VALID JSON:
             for o in aligned:
                 o["probability"] /= total
 
-        final_val = safe_model(PredictedOptionList, {"predicted_options": aligned})  # type: ignore[assignment]
+        final_val = self._build_predicted_option_list(aligned)
         avg_prob = float(np.mean([o["probability"] for o in aligned])) if aligned else 0.0
         self._recent_predictions.append((question, avg_prob))
 
@@ -1350,12 +1462,24 @@ OUTPUT ONLY VALID JSON:
         self._ensure_some_research_or_raise(research)
 
         forecasters = [
-            "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            "openrouter/mistralai/mistral-7b-instruct:free",
+            "agentrouter/glm-4.6",
+            "agentrouter/deepseek-v3.1",
         ]
-        results: List[List[Percentile]] = await asyncio.gather(
-            *[self._get_model_forecast(m, question, research) for m in forecasters]
+        results: List[List[Percentile]] = await self._collect_successful_model_forecasts(
+            forecasters, question, research
         )
+        if not results:
+            final_pcts = self._bounds_fallback(question)
+            dist = NumericDistribution.from_question(final_pcts, question)
+            med = self._median_from_40_60(final_pcts)
+            self._recent_predictions.append((question, self._normalize_median_for_tracking(med) if med else 0.0))
+            return ReasonedPrediction(
+                prediction_value=dist,
+                reasoning=(
+                    f"{self._methodology_header(research)} "
+                    "Numeric fallback: no forecaster models available; using bounds-based distribution."
+                ),
+            )
         forecast_map = {
             f"model_{i}": [{"percentile": float(p.percentile), "value": float(p.value)} for p in r]
             for i, r in enumerate(results)
@@ -1364,9 +1488,10 @@ OUTPUT ONLY VALID JSON:
         units = question.unit_of_measure if question.unit_of_measure else "Not stated"
         critic_llm = self.get_llm("critic", "llm")
 
-        critique = await critic_llm.invoke(
-            clean_indents(
-                f"""
+        try:
+            critique = await critic_llm.invoke(
+                clean_indents(
+                    f"""
 Question:
 {question.question_text}
 
@@ -1393,15 +1518,31 @@ Percentile 80: XX
 Percentile 90: XX
 "
 """
+                )
             )
-        )
-
-        final_pcts = await self._parse_numeric_percentiles_robust(question, critique, stage="critic_numeric")
+            final_pcts = await self._parse_numeric_percentiles_robust(
+                question, critique, stage="critic_numeric"
+            )
+        except Exception as e:
+            logger.warning(f"Numeric critic failed, using ensemble percentile average fallback: {e}")
+            averaged: List[Percentile] = []
+            for p in STANDARD_PERCENTILES:
+                vals = [
+                    float(pp.value)
+                    for model_pcts in results
+                    for pp in model_pcts
+                    if round(float(pp.percentile), 3) == round(p, 3)
+                ]
+                if vals:
+                    averaged.append(Percentile(percentile=p, value=float(np.mean(vals))))
+            final_pcts = self._require_standard_percentiles(averaged)
+            if not final_pcts:
+                final_pcts = self._bounds_fallback(question)
         final_pcts = self._enforce_monotone(final_pcts)
 
         dist = NumericDistribution.from_question(final_pcts, question)
         med = self._median_from_40_60(final_pcts)
-        self._recent_predictions.append((question, float(med / (abs(med) + 1.0)) if med else 0.0))
+        self._recent_predictions.append((question, self._normalize_median_for_tracking(med) if med else 0.0))
 
         return ReasonedPrediction(
             prediction_value=dist,
