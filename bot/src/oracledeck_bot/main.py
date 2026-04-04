@@ -42,7 +42,8 @@ LOGS_DIR.mkdir(exist_ok=True)
 # Spring Tournament ID — update if Metaculus changes the slug/ID for the
 # current Spring Tournament season.
 # ---------------------------------------------------------------------------
-SPRING_TOURNAMENT_ID = "spring-forecasting-tournament-2025"
+SPRING_TOURNAMENT_ID = "spring-aib-2026"
+MARKET_PULSE_TOURNAMENT_ID = "market-pulse-26q2"
 
 
 def sanitize_llm_json(text: str) -> str:
@@ -1482,12 +1483,13 @@ if __name__ == "__main__":
     async def run():
         client = MetaculusClient()
         logger.info(f"[oracledeckv1] Forecasting Spring Tournament: {args.tournament_id}")
+        logger.info(f"[oracledeckv1] Forecasting Market Pulse: {MARKET_PULSE_TOURNAMENT_ID}")
         logger.info(f"[oracledeckv1] Forecasting Mini Bench: {client.CURRENT_MINIBENCH_ID}")
-        spring_reports, minibench_reports = await asyncio.gather(
+        spring_reports, market_pulse_reports, minibench_reports = await asyncio.gather(
             bot.forecast_on_tournament(args.tournament_id, return_exceptions=True),
+            bot.forecast_on_tournament(MARKET_PULSE_TOURNAMENT_ID, return_exceptions=True),
             bot.forecast_on_tournament(client.CURRENT_MINIBENCH_ID, return_exceptions=True),
         )
-        bot.log_report_summary(spring_reports + minibench_reports)
+        bot.log_report_summary(spring_reports + market_pulse_reports + minibench_reports)
 
     asyncio.run(run())
-
