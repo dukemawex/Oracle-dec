@@ -45,6 +45,8 @@ LOGS_DIR.mkdir(exist_ok=True)
 SPRING_TOURNAMENT_ID = "spring-aib-2026"
 MARKET_PULSE_TOURNAMENT_ID = "market-pulse-26q2"
 STANDARD_PERCENTILES = [0.1, 0.2, 0.4, 0.6, 0.8, 0.9]
+MIN_BINARY_PROB = 0.01
+MAX_BINARY_PROB = 0.99
 
 
 def sanitize_llm_json(text: str) -> str:
@@ -219,7 +221,8 @@ class OracleDeckV1(ForecastBot):
         self._recent_predictions: list[tuple[MetaculusQuestion, float]] = []
 
     def _llm_config_defaults(self) -> Dict[str, str]:
-        # Free-tier OpenRouter models.
+        # Use Venice specifically for search/research gatherers via OpenRouter.
+        # Keep forecasting/critic/parser roles on their prior models.
         venice_model = "openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
         return {
             "default":         "openrouter/meta-llama/llama-3.3-70b-instruct:free",
@@ -473,10 +476,12 @@ Rules:
 
     @staticmethod
     def _normalize_median_for_tracking(median: float) -> float:
+        """Map any median to (-1, 1) for bounded internal consistency tracking."""
         return float(median / (abs(median) + 1.0))
 
     @staticmethod
     def _safe_parse_community_prediction(community: Any) -> Optional[float]:
+        """Return a numeric community prediction when parseable; otherwise None."""
         if community is None:
             return None
         try:
@@ -484,6 +489,11 @@ Rules:
         except (TypeError, ValueError):
             logger.warning(f"Invalid community prediction value ignored: {community!r}")
             return None
+
+    @staticmethod
+    def _build_predicted_option_list(options: List[Dict[str, float | str]]) -> PredictedOptionList:
+        """Create a typed predicted-options model from raw option dictionaries."""
+        return safe_model(PredictedOptionList, {"predicted_options": options})  # type: ignore[return-value]
 
     async def _parse_numeric_percentiles_robust(
         self, question: NumericQuestion, text: str, stage: str
@@ -1186,6 +1196,7 @@ Percentile 90: XX
     async def _collect_successful_model_forecasts(
         self, model_names: List[str], question: MetaculusQuestion, research: str
     ) -> List[Any]:
+        """Run forecast models concurrently and return only successful results."""
         results = await asyncio.gather(
             *[self._get_model_forecast(m, question, research) for m in model_names],
             return_exceptions=True,
@@ -1217,7 +1228,7 @@ Percentile 90: XX
                 getattr(question, "community_prediction", None)
             )
             fallback_p = community_val if community_val is not None else 0.5
-            fallback_p = float(np.clip(fallback_p, 0.01, 0.99))
+            fallback_p = float(np.clip(fallback_p, MIN_BINARY_PROB, MAX_BINARY_PROB))
             self._recent_predictions.append((question, fallback_p))
             return ReasonedPrediction(
                 prediction_value=fallback_p,
@@ -1308,7 +1319,7 @@ OUTPUT ONLY JSON:
         except Exception:
             p_cal = p_time
 
-        final_p = float(np.clip(p_cal, 0.01, 0.99))
+        final_p = float(np.clip(p_cal, MIN_BINARY_PROB, MAX_BINARY_PROB))
         self._recent_predictions.append((question, final_p))
 
         reasoning = self._short_reasoning_binary(
@@ -1328,7 +1339,7 @@ OUTPUT ONLY JSON:
     ) -> ReasonedPrediction[PredictedOptionList]:
         self._ensure_some_research_or_raise(research)
         if not question.options:
-            empty = safe_model(PredictedOptionList, {"predicted_options": []})  # type: ignore[assignment]
+            empty = self._build_predicted_option_list([])
             return ReasonedPrediction(
                 prediction_value=empty,
                 reasoning=(
@@ -1345,7 +1356,7 @@ OUTPUT ONLY JSON:
         if not results:
             uniform = 1.0 / len(question.options)
             fallback = [{"option_name": opt, "probability": uniform} for opt in question.options]
-            final_val = safe_model(PredictedOptionList, {"predicted_options": fallback})  # type: ignore[assignment]
+            final_val = self._build_predicted_option_list(fallback)
             self._recent_predictions.append((question, uniform))
             return ReasonedPrediction(
                 prediction_value=final_val,
@@ -1400,7 +1411,7 @@ OUTPUT ONLY VALID JSON:
                         "probability": float(np.mean(vals)) if vals else 0.0,
                     }
                 )
-            final_list = safe_model(PredictedOptionList, {"predicted_options": averaged})  # type: ignore[assignment]
+            final_list = self._build_predicted_option_list(averaged)
 
         option_names = question.options
         current = {o.option_name: float(o.probability) for o in final_list.predicted_options}
@@ -1414,7 +1425,7 @@ OUTPUT ONLY VALID JSON:
             for o in aligned:
                 o["probability"] /= total
 
-        final_val = safe_model(PredictedOptionList, {"predicted_options": aligned})  # type: ignore[assignment]
+        final_val = self._build_predicted_option_list(aligned)
         avg_prob = float(np.mean([o["probability"] for o in aligned])) if aligned else 0.0
         self._recent_predictions.append((question, avg_prob))
 
