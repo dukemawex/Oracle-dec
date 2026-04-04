@@ -219,23 +219,17 @@ class OracleDeckV1(ForecastBot):
         self._recent_predictions: list[tuple[MetaculusQuestion, float]] = []
 
     def _llm_config_defaults(self) -> Dict[str, str]:
-        # Free-tier models only (confirmed $0/M on OpenRouter as of April 2026).
-        # Role mapping:
-        #   query_optimizer  → Sonar Small 128k     (live web retrieval — gatherer 1)
-        #   mistral_online   → Mistral Small 3.1 24B (live web retrieval — gatherer 2)
-        #   red_team/auditor → Mistral 7B            (skeptical critique / auditor)
-        #   judge/critic     → Llama 3.3 70B         (strongest free reasoner)
-        #   parser/summarizer→ Llama 3.1 8B          (lightweight structured output)
-        #   decomposer       → Llama 3.3 70B         (needs broad reasoning)
+        # Free-tier OpenRouter model.
+        venice_model = "openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
         return {
-            "default":         "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            "parser":          "openrouter/meta-llama/llama-3.1-8b-instruct:free",
-            "summarizer":      "openrouter/meta-llama/llama-3.1-8b-instruct:free",
-            "query_optimizer": "openrouter/perplexity/llama-3.1-sonar-small-128k-online",
-            "mistral_online":  "openrouter/mistralai/mistral-small-3.1-24b-instruct:free",
-            "critic":          "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            "red_team":        "openrouter/mistralai/mistral-7b-instruct:free",
-            "decomposer":      "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+            "default":         venice_model,
+            "parser":          venice_model,
+            "summarizer":      venice_model,
+            "query_optimizer": venice_model,
+            "mistral_online":  venice_model,
+            "critic":          venice_model,
+            "red_team":        venice_model,
+            "decomposer":      venice_model,
         }
 
     # ------------------------------------------------------------------
@@ -1214,8 +1208,7 @@ Percentile 90: XX
         self._ensure_some_research_or_raise(research)
 
         forecasters = [
-            "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            "openrouter/mistralai/mistral-7b-instruct:free",
+            "openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
         ]
         results = await self._collect_successful_model_forecasts(forecasters, question, research)
         if not results:
@@ -1335,8 +1328,7 @@ OUTPUT ONLY JSON:
         self._ensure_some_research_or_raise(research)
 
         forecasters = [
-            "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            "openrouter/mistralai/mistral-7b-instruct:free",
+            "openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
         ]
         results = await self._collect_successful_model_forecasts(forecasters, question, research)
         if not results:
@@ -1426,8 +1418,7 @@ OUTPUT ONLY VALID JSON:
         self._ensure_some_research_or_raise(research)
 
         forecasters = [
-            "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            "openrouter/mistralai/mistral-7b-instruct:free",
+            "openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
         ]
         results: List[List[Percentile]] = await self._collect_successful_model_forecasts(
             forecasters, question, research
