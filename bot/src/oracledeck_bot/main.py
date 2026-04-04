@@ -196,10 +196,10 @@ class OracleDeckV1(ForecastBot):
     """
     OracleDeck v1 — Spring Tournament forecasting bot.
 
-    Research providers : Sonar Small 128k online + Mistral Small 3.1 24B online (parallel gatherers) → Mistral 7B (auditor). No external API keys required.
-    Forecasting models : Llama 3.3 70B (judge/critic/decomposer) + Mistral 7B (red-team/auditor)
-                         + Sonar Small (query optimisation) + Llama 3.1 8B (parser).
-                         All free-tier via OpenRouter.
+    Research providers : GLM-4.6 + DeepSeek-V3.2 (parallel gatherers) → DeepSeek-V3.1 (auditor).
+    Forecasting models : GLM-4.6 (judge/critic/decomposer) + DeepSeek-R1-0528 (red-team)
+                         + DeepSeek-V3.2 (query optimisation/search) + GLM-4.5 (parser/summarizer).
+                         Routed via AgentRouter.
     Extremize         : enabled by default (≥60 / ≤40 gate, logit method).
     Target            : Spring Tournament + Mini Bench.
     """
@@ -221,18 +221,20 @@ class OracleDeckV1(ForecastBot):
         self._recent_predictions: list[tuple[MetaculusQuestion, float]] = []
 
     def _llm_config_defaults(self) -> Dict[str, str]:
-        # Use Venice specifically for search/research gatherers via OpenRouter.
-        # Keep forecasting/critic/parser roles on their prior models.
-        venice_model = "openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
+        # Role mapping using AgentRouter models requested for this bot.
+        # Search/web retrieval: query_optimizer + mistral_online
+        # Parsing/summarization: parser + summarizer
+        # Forecast/judge/critic/decomposition: default + critic + decomposer
+        # Adversarial review: red_team
         return {
-            "default":         "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            "parser":          "openrouter/meta-llama/llama-3.1-8b-instruct:free",
-            "summarizer":      "openrouter/meta-llama/llama-3.1-8b-instruct:free",
-            "query_optimizer": venice_model,
-            "mistral_online":  venice_model,
-            "critic":          "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            "red_team":        "openrouter/mistralai/mistral-7b-instruct:free",
-            "decomposer":      "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+            "default":         "agentrouter/glm-4.6",
+            "parser":          "agentrouter/glm-4.5",
+            "summarizer":      "agentrouter/glm-4.5",
+            "query_optimizer": "agentrouter/deepseek-v3.2",
+            "mistral_online":  "agentrouter/glm-4.6",
+            "critic":          "agentrouter/glm-4.6",
+            "red_team":        "agentrouter/deepseek-r1-0528",
+            "decomposer":      "agentrouter/deepseek-v3.1",
         }
 
     # ------------------------------------------------------------------
@@ -1219,8 +1221,8 @@ Percentile 90: XX
         self._ensure_some_research_or_raise(research)
 
         forecasters = [
-            "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            "openrouter/mistralai/mistral-7b-instruct:free",
+            "agentrouter/glm-4.6",
+            "agentrouter/deepseek-v3.1",
         ]
         results = await self._collect_successful_model_forecasts(forecasters, question, research)
         if not results:
@@ -1349,8 +1351,8 @@ OUTPUT ONLY JSON:
             )
 
         forecasters = [
-            "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            "openrouter/mistralai/mistral-7b-instruct:free",
+            "agentrouter/glm-4.6",
+            "agentrouter/deepseek-v3.1",
         ]
         results = await self._collect_successful_model_forecasts(forecasters, question, research)
         if not results:
@@ -1440,8 +1442,8 @@ OUTPUT ONLY VALID JSON:
         self._ensure_some_research_or_raise(research)
 
         forecasters = [
-            "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-            "openrouter/mistralai/mistral-7b-instruct:free",
+            "agentrouter/glm-4.6",
+            "agentrouter/deepseek-v3.1",
         ]
         results: List[List[Percentile]] = await self._collect_successful_model_forecasts(
             forecasters, question, research
