@@ -1174,6 +1174,21 @@ Percentile 90: XX
 
         raise TypeError(f"Unsupported question type: {type(question)}")
 
+    async def _collect_successful_model_forecasts(
+        self, model_names: List[str], question: MetaculusQuestion, research: str
+    ) -> List[Any]:
+        results = await asyncio.gather(
+            *[self._get_model_forecast(m, question, research) for m in model_names],
+            return_exceptions=True,
+        )
+        ok_results: List[Any] = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.warning(f"Forecaster model failed ({model_names[i]}): {result}")
+            else:
+                ok_results.append(result)
+        return ok_results
+
     # ------------------------------------------------------------------
     # Main forecast methods
     # ------------------------------------------------------------------
@@ -1187,9 +1202,20 @@ Percentile 90: XX
             "openrouter/meta-llama/llama-3.3-70b-instruct:free",
             "openrouter/mistralai/mistral-7b-instruct:free",
         ]
-        results = await asyncio.gather(
-            *[self._get_model_forecast(m, question, research) for m in forecasters]
-        )
+        results = await self._collect_successful_model_forecasts(forecasters, question, research)
+        if not results:
+            community = getattr(question, "community_prediction", None)
+            fallback_p = float(community) if community is not None else 0.5
+            fallback_p = float(np.clip(fallback_p, 0.01, 0.99))
+            self._recent_predictions.append((question, fallback_p))
+            return ReasonedPrediction(
+                prediction_value=fallback_p,
+                reasoning=(
+                    f"{self._methodology_header(research)} "
+                    f"Binary fallback: no forecaster models available; using "
+                    f"{'community prediction' if community is not None else 'neutral prior'}."
+                ),
+            )
         model_probs = [float(r.prediction_in_decimal) for r in results]
         forecast_map: Dict[str, float] = {
             f"model_{i}": float(r.prediction_in_decimal) for i, r in enumerate(results)
@@ -1197,9 +1223,10 @@ Percentile 90: XX
         spread = (max(model_probs) - min(model_probs)) if len(model_probs) > 1 else 0.0
 
         critic_llm = self.get_llm("critic", "llm")
-        critique = await critic_llm.invoke(
-            clean_indents(
-                f"""
+        try:
+            critique = await critic_llm.invoke(
+                clean_indents(
+                    f"""
 Question: {question.question_text}
 
 Research:
@@ -1211,15 +1238,18 @@ Ensemble model forecasts:
 OUTPUT ONLY JSON:
 {{"prediction_in_decimal": 0.75}}
 """
+                )
             )
-        )
-        critic_out = await structure_output(
-            sanitize_llm_json(critique),
-            BinaryPrediction,
-            model=self.get_llm("parser", "llm"),
-            num_validation_samples=self._structure_output_validation_samples,
-        )
-        raw_p = float(critic_out.prediction_in_decimal)
+            critic_out = await structure_output(
+                sanitize_llm_json(critique),
+                BinaryPrediction,
+                model=self.get_llm("parser", "llm"),
+                num_validation_samples=self._structure_output_validation_samples,
+            )
+            raw_p = float(critic_out.prediction_in_decimal)
+        except Exception as e:
+            logger.warning(f"Binary critic failed, using ensemble mean fallback: {e}")
+            raw_p = float(np.mean(model_probs))
 
         red_teamed_p = await self._red_team_forecast(question, research, raw_p)
         averaged_p = 0.5 * (raw_p + red_teamed_p)
@@ -1290,18 +1320,29 @@ OUTPUT ONLY JSON:
             "openrouter/meta-llama/llama-3.3-70b-instruct:free",
             "openrouter/mistralai/mistral-7b-instruct:free",
         ]
-        results = await asyncio.gather(
-            *[self._get_model_forecast(m, question, research) for m in forecasters]
-        )
+        results = await self._collect_successful_model_forecasts(forecasters, question, research)
+        if not results:
+            uniform = 1.0 / len(question.options) if question.options else 0.0
+            fallback = [{"option_name": opt, "probability": uniform} for opt in question.options]
+            final_val = safe_model(PredictedOptionList, {"predicted_options": fallback})  # type: ignore[assignment]
+            self._recent_predictions.append((question, uniform))
+            return ReasonedPrediction(
+                prediction_value=final_val,
+                reasoning=(
+                    f"{self._methodology_header(research)} "
+                    "MC fallback: no forecaster models available; using uniform distribution."
+                ),
+            )
         forecast_map = {f"model_{i}": r.model_dump() for i, r in enumerate(results)}
 
         critic_llm = self.get_llm("critic", "llm")
         schema_example = json.dumps(
             {"predicted_options": [{"option_name": opt, "probability": 0.5} for opt in question.options[:2]]}
         )
-        critique = await critic_llm.invoke(
-            clean_indents(
-                f"""
+        try:
+            critique = await critic_llm.invoke(
+                clean_indents(
+                    f"""
 Question: {question.question_text}
 Options: {question.options}
 
@@ -1314,14 +1355,31 @@ Ensemble model forecasts:
 OUTPUT ONLY VALID JSON:
 {schema_example}
 """
+                )
             )
-        )
-        final_list: PredictedOptionList = await structure_output(
-            sanitize_llm_json(critique),
-            PredictedOptionList,
-            model=self.get_llm("parser", "llm"),
-            num_validation_samples=self._structure_output_validation_samples,
-        )
+            final_list: PredictedOptionList = await structure_output(
+                sanitize_llm_json(critique),
+                PredictedOptionList,
+                model=self.get_llm("parser", "llm"),
+                num_validation_samples=self._structure_output_validation_samples,
+            )
+        except Exception as e:
+            logger.warning(f"MC critic failed, using ensemble average fallback: {e}")
+            by_option: Dict[str, List[float]] = {name: [] for name in question.options}
+            for r in results:
+                for po in r.predicted_options:
+                    if po.option_name in by_option:
+                        by_option[po.option_name].append(float(po.probability))
+            averaged = []
+            for name in question.options:
+                vals = by_option.get(name, [])
+                averaged.append(
+                    {
+                        "option_name": name,
+                        "probability": float(np.mean(vals)) if vals else 0.0,
+                    }
+                )
+            final_list = safe_model(PredictedOptionList, {"predicted_options": averaged})  # type: ignore[assignment]
 
         option_names = question.options
         current = {o.option_name: float(o.probability) for o in final_list.predicted_options}
@@ -1353,9 +1411,21 @@ OUTPUT ONLY VALID JSON:
             "openrouter/meta-llama/llama-3.3-70b-instruct:free",
             "openrouter/mistralai/mistral-7b-instruct:free",
         ]
-        results: List[List[Percentile]] = await asyncio.gather(
-            *[self._get_model_forecast(m, question, research) for m in forecasters]
+        results: List[List[Percentile]] = await self._collect_successful_model_forecasts(
+            forecasters, question, research
         )
+        if not results:
+            final_pcts = self._bounds_fallback(question)
+            dist = NumericDistribution.from_question(final_pcts, question)
+            med = self._median_from_40_60(final_pcts)
+            self._recent_predictions.append((question, float(med / (abs(med) + 1.0)) if med else 0.0))
+            return ReasonedPrediction(
+                prediction_value=dist,
+                reasoning=(
+                    f"{self._methodology_header(research)} "
+                    "Numeric fallback: no forecaster models available; using bounds-based distribution."
+                ),
+            )
         forecast_map = {
             f"model_{i}": [{"percentile": float(p.percentile), "value": float(p.value)} for p in r]
             for i, r in enumerate(results)
@@ -1364,9 +1434,10 @@ OUTPUT ONLY VALID JSON:
         units = question.unit_of_measure if question.unit_of_measure else "Not stated"
         critic_llm = self.get_llm("critic", "llm")
 
-        critique = await critic_llm.invoke(
-            clean_indents(
-                f"""
+        try:
+            critique = await critic_llm.invoke(
+                clean_indents(
+                    f"""
 Question:
 {question.question_text}
 
@@ -1393,10 +1464,27 @@ Percentile 80: XX
 Percentile 90: XX
 "
 """
+                )
             )
-        )
-
-        final_pcts = await self._parse_numeric_percentiles_robust(question, critique, stage="critic_numeric")
+            final_pcts = await self._parse_numeric_percentiles_robust(
+                question, critique, stage="critic_numeric"
+            )
+        except Exception as e:
+            logger.warning(f"Numeric critic failed, using ensemble percentile average fallback: {e}")
+            percentiles = [0.1, 0.2, 0.4, 0.6, 0.8, 0.9]
+            averaged: List[Percentile] = []
+            for p in percentiles:
+                vals = [
+                    float(pp.value)
+                    for model_pcts in results
+                    for pp in model_pcts
+                    if round(float(pp.percentile), 3) == round(p, 3)
+                ]
+                if vals:
+                    averaged.append(Percentile(percentile=p, value=float(np.mean(vals))))
+            final_pcts = self._require_standard_percentiles(averaged)
+            if not final_pcts:
+                final_pcts = self._bounds_fallback(question)
         final_pcts = self._enforce_monotone(final_pcts)
 
         dist = NumericDistribution.from_question(final_pcts, question)
