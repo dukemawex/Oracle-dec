@@ -47,6 +47,7 @@ MARKET_PULSE_TOURNAMENT_ID = "market-pulse-26q2"
 STANDARD_PERCENTILES = [0.1, 0.2, 0.4, 0.6, 0.8, 0.9]
 MIN_BINARY_PROB = 0.01
 MAX_BINARY_PROB = 0.99
+NEUTRAL_BINARY_EPSILON = 0.001
 
 
 def sanitize_llm_json(text: str) -> str:
@@ -516,7 +517,7 @@ Rules:
     def _avoid_exactly_neutral_binary(prob: float) -> float:
         """Avoid exactly/near 50% binary outputs."""
         p = float(np.clip(prob, MIN_BINARY_PROB, MAX_BINARY_PROB))
-        if abs(p - 0.5) < 0.001:
+        if abs(p - 0.5) < NEUTRAL_BINARY_EPSILON:
             up = float(np.nextafter(0.5, 1.0))
             down = float(np.nextafter(0.5, 0.0))
             if up <= MAX_BINARY_PROB:
@@ -524,7 +525,10 @@ Rules:
             elif down >= MIN_BINARY_PROB:
                 p = down
             else:
-                p = MIN_BINARY_PROB if abs(MIN_BINARY_PROB - 0.5) > abs(MAX_BINARY_PROB - 0.5) else MAX_BINARY_PROB
+                # Choose whichever configured bound is farther from neutrality.
+                min_dist = abs(MIN_BINARY_PROB - 0.5)
+                max_dist = abs(MAX_BINARY_PROB - 0.5)
+                p = MIN_BINARY_PROB if min_dist >= max_dist else MAX_BINARY_PROB
         return p
 
     @staticmethod
