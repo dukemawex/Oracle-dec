@@ -527,12 +527,9 @@ Rules:
             next_below_neutral = float(np.nextafter(0.5, 0.0))
             if next_above_neutral <= MAX_BINARY_PROB:
                 p = next_above_neutral
-            elif (
-                abs(p - 0.5) < NEUTRAL_BINARY_EPSILON
-                and next_below_neutral >= MIN_BINARY_PROB
-            ):
+            elif next_below_neutral >= MIN_BINARY_PROB:
                 p = next_below_neutral
-            if abs(p - 0.5) < NEUTRAL_BINARY_EPSILON:
+            else:
                 # Choose whichever configured bound is farther from neutrality.
                 min_dist = abs(MIN_BINARY_PROB - 0.5)
                 max_dist = abs(MAX_BINARY_PROB - 0.5)
