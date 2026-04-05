@@ -517,6 +517,7 @@ Rules:
     def _avoid_exactly_neutral_binary(prob: float) -> float:
         """Avoid binary outputs within NEUTRAL_BINARY_EPSILON of 0.5.
 
+        If the clipped input is already outside that neutral band, it is returned unchanged.
         Preference order: nearest representable float above 0.5, then below 0.5,
         then whichever configured probability bound is farther from 0.5.
         """
@@ -526,7 +527,7 @@ Rules:
             next_below_neutral = float(np.nextafter(0.5, 0.0))
             if next_above_neutral <= MAX_BINARY_PROB:
                 p = next_above_neutral
-            if (
+            elif (
                 abs(p - 0.5) < NEUTRAL_BINARY_EPSILON
                 and next_below_neutral >= MIN_BINARY_PROB
             ):
