@@ -517,8 +517,15 @@ Rules:
         """Avoid exactly/near 50% binary outputs."""
         p = float(np.clip(prob, MIN_BINARY_PROB, MAX_BINARY_PROB))
         if abs(p - 0.5) < 0.001:
-            p = 0.501 if p >= 0.5 else 0.499
-        return float(np.clip(p, MIN_BINARY_PROB, MAX_BINARY_PROB))
+            up = float(np.nextafter(0.5, 1.0))
+            down = float(np.nextafter(0.5, 0.0))
+            if up <= MAX_BINARY_PROB:
+                p = up
+            elif down >= MIN_BINARY_PROB:
+                p = down
+            else:
+                p = MIN_BINARY_PROB if abs(MIN_BINARY_PROB - 0.5) > abs(MAX_BINARY_PROB - 0.5) else MAX_BINARY_PROB
+        return p
 
     @staticmethod
     def _build_predicted_option_list(options: List[Dict[str, float | str]]) -> PredictedOptionList:
