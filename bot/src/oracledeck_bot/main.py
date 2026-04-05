@@ -18,7 +18,6 @@ from pydantic import BaseModel, Field
 from forecasting_tools import (
     BinaryQuestion,
     ForecastBot,
-    GeneralLlm,
     MetaculusClient,
     MetaculusQuestion,
     MultipleChoiceQuestion,
@@ -47,6 +46,7 @@ MARKET_PULSE_TOURNAMENT_ID = "market-pulse-26q2"
 STANDARD_PERCENTILES = [0.1, 0.2, 0.4, 0.6, 0.8, 0.9]
 MIN_BINARY_PROB = 0.01
 MAX_BINARY_PROB = 0.99
+NEUTRAL_BINARY_EPSILON = 0.001
 
 
 def sanitize_llm_json(text: str) -> str:
@@ -513,6 +513,23 @@ Rules:
             return None
 
     @staticmethod
+    def _avoid_exactly_neutral_binary(prob: float) -> float:
+        """Avoid binary outputs within NEUTRAL_BINARY_EPSILON of 0.5.
+
+        If the clipped input is already outside that neutral band, it is returned unchanged.
+        Uses the nearest representable float above 0.5 (or below 0.5 if needed).
+        """
+        p = float(np.clip(prob, MIN_BINARY_PROB, MAX_BINARY_PROB))
+        if abs(p - 0.5) < NEUTRAL_BINARY_EPSILON:
+            next_above_neutral = float(np.nextafter(0.5, 1.0))
+            next_below_neutral = float(np.nextafter(0.5, 0.0))
+            if next_above_neutral <= MAX_BINARY_PROB:
+                p = next_above_neutral
+            elif next_below_neutral >= MIN_BINARY_PROB:
+                p = next_below_neutral
+        return p
+
+    @staticmethod
     def _build_predicted_option_list(options: List[Dict[str, float | str]]) -> PredictedOptionList:
         """Create a typed predicted-options model from raw option dictionaries."""
         return safe_model(PredictedOptionList, {"predicted_options": options})  # type: ignore[return-value]
@@ -712,7 +729,7 @@ Answer YES or NO only.
 
     def _methodology_header(self, research: str) -> str:
         return (
-            f"[{self.bot_name}] methodology: research(deepseek-v3.2‖glm-4.6‖claude-sonnet-4.5‖gpt-4.1→deepseek-r1-0528-auditor); "
+            f"[{self.bot_name}] methodology: research(multi-source gatherers→auditor); "
             f"ensemble→critic→red-team; numeric regime routing + constrained parsing; "
             f"extremize(logit,gate≥0.60/≤0.40) when evidence quality+agreement supports it."
         )
@@ -1126,11 +1143,10 @@ Extract the latest observed level and a few recent values if available.
     # ------------------------------------------------------------------
 
     async def _get_model_forecast(
-        self, model_name: str, question: MetaculusQuestion, research: str
+        self, forecaster_role: str, question: MetaculusQuestion, research: str
     ) -> Any:
         self._ensure_some_research_or_raise(research)
-        temp = self._get_temperature(question)
-        llm = GeneralLlm(model=model_name, temperature=temp)
+        llm = self.get_llm(forecaster_role, "llm")
 
         if isinstance(question, BinaryQuestion):
             raw = await llm.invoke(
@@ -1210,23 +1226,25 @@ Percentile 90: XX
                 )
             )
             return await self._parse_numeric_percentiles_robust(
-                question, reasoning, stage=f"model_forecast:{model_name}"
+                question, reasoning, stage=f"model_forecast:{forecaster_role}"
             )
 
         raise TypeError(f"Unsupported question type: {type(question)}")
 
     async def _collect_successful_model_forecasts(
-        self, model_names: List[str], question: MetaculusQuestion, research: str
+        self, forecaster_roles: List[str], question: MetaculusQuestion, research: str
     ) -> List[Any]:
         """Run forecast models concurrently and return only successful results."""
         results = await asyncio.gather(
-            *[self._get_model_forecast(m, question, research) for m in model_names],
+            *[self._get_model_forecast(role, question, research) for role in forecaster_roles],
             return_exceptions=True,
         )
         ok_results: List[Any] = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                logger.warning(f"Forecaster model failed ({model_names[i]}): {result}")
+                logger.warning(
+                    f"Forecaster model #{i + 1} failed ({type(result).__name__})."
+                )
             else:
                 ok_results.append(result)
         return ok_results
@@ -1240,17 +1258,16 @@ Percentile 90: XX
     ) -> ReasonedPrediction[float]:
         self._ensure_some_research_or_raise(research)
 
-        forecasters = [
-            "agentrouter/glm-4.6",
-            "agentrouter/deepseek-v3.1",
-        ]
-        results = await self._collect_successful_model_forecasts(forecasters, question, research)
+        forecaster_roles = ["default", "decomposer"]
+        results = await self._collect_successful_model_forecasts(
+            forecaster_roles, question, research
+        )
         if not results:
             community_val = self._safe_parse_community_prediction(
                 getattr(question, "community_prediction", None)
             )
             fallback_p = community_val if community_val is not None else 0.5
-            fallback_p = float(np.clip(fallback_p, MIN_BINARY_PROB, MAX_BINARY_PROB))
+            fallback_p = self._avoid_exactly_neutral_binary(fallback_p)
             self._recent_predictions.append((question, fallback_p))
             return ReasonedPrediction(
                 prediction_value=fallback_p,
@@ -1341,7 +1358,7 @@ OUTPUT ONLY JSON:
         except Exception:
             p_cal = p_time
 
-        final_p = float(np.clip(p_cal, MIN_BINARY_PROB, MAX_BINARY_PROB))
+        final_p = self._avoid_exactly_neutral_binary(p_cal)
         self._recent_predictions.append((question, final_p))
 
         reasoning = self._short_reasoning_binary(
@@ -1370,11 +1387,10 @@ OUTPUT ONLY JSON:
                 ),
             )
 
-        forecasters = [
-            "agentrouter/glm-4.6",
-            "agentrouter/deepseek-v3.1",
-        ]
-        results = await self._collect_successful_model_forecasts(forecasters, question, research)
+        forecaster_roles = ["default", "decomposer"]
+        results = await self._collect_successful_model_forecasts(
+            forecaster_roles, question, research
+        )
         if not results:
             uniform = 1.0 / len(question.options)
             fallback = [{"option_name": opt, "probability": uniform} for opt in question.options]
@@ -1461,12 +1477,9 @@ OUTPUT ONLY VALID JSON:
     ) -> ReasonedPrediction[NumericDistribution]:
         self._ensure_some_research_or_raise(research)
 
-        forecasters = [
-            "agentrouter/glm-4.6",
-            "agentrouter/deepseek-v3.1",
-        ]
+        forecaster_roles = ["default", "decomposer"]
         results: List[List[Percentile]] = await self._collect_successful_model_forecasts(
-            forecasters, question, research
+            forecaster_roles, question, research
         )
         if not results:
             final_pcts = self._bounds_fallback(question)
@@ -1616,7 +1629,7 @@ if __name__ == "__main__":
         use_research_summary_to_forecast=False,
         publish_reports_to_metaculus=True,
         skip_previously_forecasted_questions=True,
-        extra_metadata_in_explanation=True,
+        extra_metadata_in_explanation=False,
         bot_name=args.bot_name,
         flags=flags,
     )
