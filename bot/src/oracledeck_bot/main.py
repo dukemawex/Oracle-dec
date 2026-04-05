@@ -518,8 +518,7 @@ Rules:
         """Avoid binary outputs within NEUTRAL_BINARY_EPSILON of 0.5.
 
         If the clipped input is already outside that neutral band, it is returned unchanged.
-        Preference order: nearest representable float above 0.5, then below 0.5,
-        then whichever configured probability bound is farther from 0.5.
+        Uses the nearest representable float above 0.5 (or below 0.5 if needed).
         """
         p = float(np.clip(prob, MIN_BINARY_PROB, MAX_BINARY_PROB))
         if abs(p - 0.5) < NEUTRAL_BINARY_EPSILON:
@@ -529,11 +528,6 @@ Rules:
                 p = next_above_neutral
             elif next_below_neutral >= MIN_BINARY_PROB:
                 p = next_below_neutral
-            else:
-                # Choose whichever configured bound is farther from neutrality.
-                min_dist = abs(MIN_BINARY_PROB - 0.5)
-                max_dist = abs(MAX_BINARY_PROB - 0.5)
-                p = MIN_BINARY_PROB if min_dist > max_dist else MAX_BINARY_PROB
         return p
 
     @staticmethod
