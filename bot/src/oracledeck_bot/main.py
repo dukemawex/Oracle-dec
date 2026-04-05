@@ -513,6 +513,14 @@ Rules:
             return None
 
     @staticmethod
+    def _avoid_exactly_neutral_binary(prob: float) -> float:
+        """Avoid exactly/near 50% binary outputs."""
+        p = float(np.clip(prob, MIN_BINARY_PROB, MAX_BINARY_PROB))
+        if abs(p - 0.5) < 0.001:
+            p = 0.501 if p >= 0.5 else 0.499
+        return float(np.clip(p, MIN_BINARY_PROB, MAX_BINARY_PROB))
+
+    @staticmethod
     def _build_predicted_option_list(options: List[Dict[str, float | str]]) -> PredictedOptionList:
         """Create a typed predicted-options model from raw option dictionaries."""
         return safe_model(PredictedOptionList, {"predicted_options": options})  # type: ignore[return-value]
@@ -712,7 +720,7 @@ Answer YES or NO only.
 
     def _methodology_header(self, research: str) -> str:
         return (
-            f"[{self.bot_name}] methodology: research(deepseek-v3.2‖glm-4.6‖claude-sonnet-4.5‖gpt-4.1→deepseek-r1-0528-auditor); "
+            f"[{self.bot_name}] methodology: research(multi-source gatherers→auditor); "
             f"ensemble→critic→red-team; numeric regime routing + constrained parsing; "
             f"extremize(logit,gate≥0.60/≤0.40) when evidence quality+agreement supports it."
         )
@@ -1226,7 +1234,9 @@ Percentile 90: XX
         ok_results: List[Any] = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                logger.warning(f"Forecaster model failed ({model_names[i]}): {result}")
+                logger.warning(
+                    f"Forecaster model #{i + 1} failed ({type(result).__name__})."
+                )
             else:
                 ok_results.append(result)
         return ok_results
@@ -1250,7 +1260,7 @@ Percentile 90: XX
                 getattr(question, "community_prediction", None)
             )
             fallback_p = community_val if community_val is not None else 0.5
-            fallback_p = float(np.clip(fallback_p, MIN_BINARY_PROB, MAX_BINARY_PROB))
+            fallback_p = self._avoid_exactly_neutral_binary(fallback_p)
             self._recent_predictions.append((question, fallback_p))
             return ReasonedPrediction(
                 prediction_value=fallback_p,
@@ -1341,7 +1351,7 @@ OUTPUT ONLY JSON:
         except Exception:
             p_cal = p_time
 
-        final_p = float(np.clip(p_cal, MIN_BINARY_PROB, MAX_BINARY_PROB))
+        final_p = self._avoid_exactly_neutral_binary(p_cal)
         self._recent_predictions.append((question, final_p))
 
         reasoning = self._short_reasoning_binary(
@@ -1616,7 +1626,7 @@ if __name__ == "__main__":
         use_research_summary_to_forecast=False,
         publish_reports_to_metaculus=True,
         skip_previously_forecasted_questions=True,
-        extra_metadata_in_explanation=True,
+        extra_metadata_in_explanation=False,
         bot_name=args.bot_name,
         flags=flags,
     )
