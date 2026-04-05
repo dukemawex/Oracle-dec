@@ -515,16 +515,23 @@ Rules:
 
     @staticmethod
     def _avoid_exactly_neutral_binary(prob: float) -> float:
-        """Avoid exactly/near 50% binary outputs."""
+        """Avoid binary outputs within NEUTRAL_BINARY_EPSILON of 0.5.
+
+        Preference order: nearest representable float above 0.5, then below 0.5,
+        then whichever configured probability bound is farther from 0.5.
+        """
         p = float(np.clip(prob, MIN_BINARY_PROB, MAX_BINARY_PROB))
         if abs(p - 0.5) < NEUTRAL_BINARY_EPSILON:
             next_above_neutral = float(np.nextafter(0.5, 1.0))
             next_below_neutral = float(np.nextafter(0.5, 0.0))
             if next_above_neutral <= MAX_BINARY_PROB:
                 p = next_above_neutral
-            elif next_below_neutral >= MIN_BINARY_PROB:
+            if (
+                abs(p - 0.5) < NEUTRAL_BINARY_EPSILON
+                and next_below_neutral >= MIN_BINARY_PROB
+            ):
                 p = next_below_neutral
-            else:
+            if abs(p - 0.5) < NEUTRAL_BINARY_EPSILON:
                 # Choose whichever configured bound is farther from neutrality.
                 min_dist = abs(MIN_BINARY_PROB - 0.5)
                 max_dist = abs(MAX_BINARY_PROB - 0.5)
