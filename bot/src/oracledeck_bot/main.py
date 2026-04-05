@@ -18,7 +18,6 @@ from pydantic import BaseModel, Field
 from forecasting_tools import (
     BinaryQuestion,
     ForecastBot,
-    GeneralLlm,
     MetaculusClient,
     MetaculusQuestion,
     MultipleChoiceQuestion,
@@ -1144,11 +1143,10 @@ Extract the latest observed level and a few recent values if available.
     # ------------------------------------------------------------------
 
     async def _get_model_forecast(
-        self, model_name: str, question: MetaculusQuestion, research: str
+        self, forecaster_role: str, question: MetaculusQuestion, research: str
     ) -> Any:
         self._ensure_some_research_or_raise(research)
-        temp = self._get_temperature(question)
-        llm = GeneralLlm(model=model_name, temperature=temp)
+        llm = self.get_llm(forecaster_role, "llm")
 
         if isinstance(question, BinaryQuestion):
             raw = await llm.invoke(
@@ -1228,17 +1226,17 @@ Percentile 90: XX
                 )
             )
             return await self._parse_numeric_percentiles_robust(
-                question, reasoning, stage=f"model_forecast:{model_name}"
+                question, reasoning, stage=f"model_forecast:{forecaster_role}"
             )
 
         raise TypeError(f"Unsupported question type: {type(question)}")
 
     async def _collect_successful_model_forecasts(
-        self, model_names: List[str], question: MetaculusQuestion, research: str
+        self, forecaster_roles: List[str], question: MetaculusQuestion, research: str
     ) -> List[Any]:
         """Run forecast models concurrently and return only successful results."""
         results = await asyncio.gather(
-            *[self._get_model_forecast(m, question, research) for m in model_names],
+            *[self._get_model_forecast(role, question, research) for role in forecaster_roles],
             return_exceptions=True,
         )
         ok_results: List[Any] = []
@@ -1260,11 +1258,10 @@ Percentile 90: XX
     ) -> ReasonedPrediction[float]:
         self._ensure_some_research_or_raise(research)
 
-        forecasters = [
-            "agentrouter/glm-4.6",
-            "agentrouter/deepseek-v3.1",
-        ]
-        results = await self._collect_successful_model_forecasts(forecasters, question, research)
+        forecaster_roles = ["default", "decomposer"]
+        results = await self._collect_successful_model_forecasts(
+            forecaster_roles, question, research
+        )
         if not results:
             community_val = self._safe_parse_community_prediction(
                 getattr(question, "community_prediction", None)
@@ -1390,11 +1387,10 @@ OUTPUT ONLY JSON:
                 ),
             )
 
-        forecasters = [
-            "agentrouter/glm-4.6",
-            "agentrouter/deepseek-v3.1",
-        ]
-        results = await self._collect_successful_model_forecasts(forecasters, question, research)
+        forecaster_roles = ["default", "decomposer"]
+        results = await self._collect_successful_model_forecasts(
+            forecaster_roles, question, research
+        )
         if not results:
             uniform = 1.0 / len(question.options)
             fallback = [{"option_name": opt, "probability": uniform} for opt in question.options]
@@ -1481,12 +1477,9 @@ OUTPUT ONLY VALID JSON:
     ) -> ReasonedPrediction[NumericDistribution]:
         self._ensure_some_research_or_raise(research)
 
-        forecasters = [
-            "agentrouter/glm-4.6",
-            "agentrouter/deepseek-v3.1",
-        ]
+        forecaster_roles = ["default", "decomposer"]
         results: List[List[Percentile]] = await self._collect_successful_model_forecasts(
-            forecasters, question, research
+            forecaster_roles, question, research
         )
         if not results:
             final_pcts = self._bounds_fallback(question)
